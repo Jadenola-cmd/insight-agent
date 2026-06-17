@@ -1,6 +1,7 @@
 import pandas as pd
 
 from api.modules.base import BaseAnalysisModule
+from api.modules._metrics import select_numeric_metric
 
 # 分类列的唯一值数量范围：太少没有对比意义，太多更像ID列
 MIN_CATEGORIES = 2
@@ -18,8 +19,9 @@ class ComparisonModule(BaseAnalysisModule):
 
     def run(self, df: pd.DataFrame, config: dict) -> dict:
         category_column = config.get("category_column") or self._find_category_column(df)
-        value_column = config.get("value_column") or self._numeric_columns(df)[0]
-        agg = config.get("agg", "sum")
+        default_value_column, default_agg = select_numeric_metric(df, config.get("value_column"))
+        value_column = default_value_column
+        agg = config.get("agg") or default_agg
 
         grouped = df.groupby(category_column)[value_column].agg(agg).sort_values(ascending=False)
         total = float(grouped.sum())

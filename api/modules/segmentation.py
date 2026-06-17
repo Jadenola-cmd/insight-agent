@@ -1,6 +1,7 @@
 import pandas as pd
 
 from api.modules.base import BaseAnalysisModule
+from api.modules._metrics import is_dimension_like
 
 # 用户/实体ID列名关键词（不区分大小写）
 ID_KEYWORDS = ["id", "user", "customer", "用户", "客户", "编号", "会员", "账号"]
@@ -27,7 +28,13 @@ class SegmentationModule(BaseAnalysisModule):
         id_column = config.get("id_column") or self._find_id_column(df)
         value_column = config.get("value_column") or self._numeric_columns(df)[0]
 
-        entity_values = df.groupby(id_column)[value_column].sum()
+        # value_column 若是按 id_column 重复但取值不变的维度属性（如 join 进来的用户静态属性，
+        # 同一用户的多条事件行上重复出现同一个值），sum 会把它按该用户的行数虚假放大，
+        # 应取 first（等价于该用户的真实值）；只有逐行变化的事件级指标才适合 sum 累加。
+        agg = "first" if is_dimension_like(df, value_column, id_column) else "sum"
+        entity_values = df.groupby(id_column)[value_column].agg(agg)
+        # 部分实体可能完全没有该指标（如多表join后未匹配到对应行），无法参与分群，排除
+        entity_values = entity_values.dropna()
 
         n_bins = min(4, entity_values.nunique())
         labels = SEGMENT_LABELS[n_bins]

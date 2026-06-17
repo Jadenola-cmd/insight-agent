@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from api.modules.base import BaseAnalysisModule
+from api.modules._metrics import select_numeric_metric
 
 
 class TrendInsightModule(BaseAnalysisModule):
@@ -15,7 +16,7 @@ class TrendInsightModule(BaseAnalysisModule):
 
     def run(self, df: pd.DataFrame, config: dict) -> dict:
         date_column = config.get("date_column") or self._find_date_column(df)
-        value_column = config.get("value_column") or self._numeric_columns(df)[0]
+        value_column, agg = select_numeric_metric(df, config.get("value_column"))
 
         series = df[[date_column, value_column]].dropna()
         series[date_column] = pd.to_datetime(series[date_column], errors="coerce")
@@ -23,7 +24,7 @@ class TrendInsightModule(BaseAnalysisModule):
 
         granularity = self._infer_granularity(series[date_column])
         period = series[date_column].dt.to_period(granularity)
-        grouped = series.groupby(period)[value_column].sum()
+        grouped = series.groupby(period)[value_column].agg(agg)
 
         periods = [str(p) for p in grouped.index]
         values = [round(float(v), 4) for v in grouped.to_numpy()]
@@ -34,6 +35,7 @@ class TrendInsightModule(BaseAnalysisModule):
         return {
             "date_column": date_column,
             "value_column": value_column,
+            "agg": agg,
             "granularity": granularity,
             "periods": periods,
             "values": values,
@@ -46,8 +48,9 @@ class TrendInsightModule(BaseAnalysisModule):
         anomaly_points = [
             {"name": "异常点", "coord": [a["period"], a["value"]]} for a in results["anomalies"]
         ]
+        agg_label = "均值" if results.get("agg") == "mean" else "总量"
         return {
-            "title": {"text": f"{results['value_column']} 趋势（{results['granularity']}）"},
+            "title": {"text": f"{results['value_column']} {agg_label}趋势（{results['granularity']}）"},
             "tooltip": {"trigger": "axis"},
             "xAxis": {"type": "category", "data": results["periods"]},
             "yAxis": {"type": "value"},
