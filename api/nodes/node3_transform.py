@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pandas as pd
 
@@ -25,6 +26,12 @@ EXECUTION_ORDER = [
     "drop_rows_with_null",
     "drop_duplicates",
 ]
+
+TABLES_DIR_NAME = "tables"
+
+
+def _tables_dir(session_dir: Path) -> Path:
+    return session_dir / TABLES_DIR_NAME
 
 
 def _build_deterministic_ops(confirmed_schema: dict) -> list[dict]:
@@ -56,10 +63,8 @@ def _build_deterministic_ops(confirmed_schema: dict) -> list[dict]:
 
 def _llm_supplementary_ops(confirmed_schema: dict, deterministic_ops: list[dict]) -> tuple[list[dict], bool]:
     """请求 LLM 输出补充清洗操作（仅 ALLOWED_LLM_OPS 范围内）。
-
     返回 (ops, llm_available)。LLM 不可用或返回格式不合法时返回 ([], False)，
-    不阻断流程（仅执行确定性部分）。
-    """
+    不阻断流程（仅执行确定性部分）。"""
     included_columns = [
         {"final_name": col["final_name"], "business_meaning": col["business_meaning"]}
         for col in confirmed_schema["columns"]
@@ -68,10 +73,10 @@ def _llm_supplementary_ops(confirmed_schema: dict, deterministic_ops: list[dict]
     resolved_table_issues = confirmed_schema.get("resolved_table_issues", [])
 
     system_prompt = (
-        "你是数据清洗助手，根据字段业务含义和用户对表级口径问题的处理说明，输出补充清洗操作列表。"
-        "严格按指定JSON格式输出，不要输出任何多余文字、不要使用Markdown代码块。"
+        "你是数据清洗助手，根据字段业务含义和用户对表级口径问题的处理说明，输出补充清洗操作列表。\n"
+        "严格按指定JSON格式输出，不要输出任何多余文字、不要使用Markdown代码块。\n"
         "只允许输出以下5种操作类型：cast_type、strip_whitespace、standardize_categories、"
-        "unit_convert、drop_duplicates。列名必须使用给定的 final_name。"
+        "unit_convert、drop_duplicates。列名必须使用给定的 final_name。\n"
         "如果没有需要补充的操作，ops 返回空数组。"
     )
     user_prompt = f"""字段列表（final_name + business_meaning）：
@@ -158,7 +163,7 @@ def op_cast_type(df: pd.DataFrame, op: dict) -> pd.DataFrame:
         else:
             print(f"cast_type: 未知目标类型 '{to}'，跳过列 '{column}'")
     except Exception as e:
-        print(f"cast_type: 列 '{column}' 转换为 '{to}' 失败，跳过: {e}")
+        print(f"cast_type: 列'{column}' 转换为'{to}' 失败，跳过: {e}")
     return df
 
 
@@ -212,10 +217,68 @@ OP_FUNCTIONS = {
 }
 
 
-def run_transform(raw_data_path: str, confirmed_schema: dict, cleaned_data_path: str) -> dict:
-    """Node3：执行确定性清洗 plan，写入 cleaned_data_path（parquet）。"""
+def _execute_join_plan(df: pd.DataFrame, join_plan: dict, raw_data_path: str) -> pd.DataFrame:
+    """按 confirmed_join_plan 依次执行 pd.merge()，合并多表。
+
+    硬约束：merge 必须是固定 pd.merge() 调用，不能 eval/exec 任何 LLM 输出。
+    """
+    if not join_plan or not join_plan.get("joins"):
+        return df
+
+    # 从 raw_data_path 推导 session_dir
+    session_dir_path = Path(raw_data_path).parent
+    tables_dir = _tables_dir(session_dir_path)
+
+    for join_entry in join_plan["joins"]:
+        table_name = join_entry["table"]
+        on = join_entry["on"]
+        how = join_entry.get("how", "left")
+
+        # 读取右表
+        right_path = tables_dir / f"{table_name}.csv"
+        if not right_path.exists():
+            print(f"join: 右表文件不存在 {right_path}，跳过")
+            continue
+
+        try:
+            right_df = pd.read_csv(right_path)
+        except Exception as e:
+            print(f"join: 读取右表 {table_name} 失败: {e}，跳过")
+            continue
+
+        left_col = on.get("left_col")
+        right_col = on.get("right_col")
+
+        if left_col not in df.columns:
+            print(f"join: 左表缺少列 '{left_col}'，跳过 join {table_name}")
+            continue
+        if right_col not in right_df.columns:
+            print(f"join: 右表 '{table_name}' 缺少列 '{right_col}'，跳过")
+            continue
+
+        # 固定 pd.merge() 调用，严禁 eval/exec
+        df = pd.merge(df, right_df, left_on=left_col, right_on=right_col, how=how, suffixes=("", f"_{table_name}"))
+
+    return df
+
+
+def run_transform(
+    raw_data_path: str,
+    confirmed_schema: dict,
+    cleaned_data_path: str,
+    join_plan: dict | None = None,
+    merged_data_path: str | None = None,
+) -> dict:
+    """Node3：执行确定性清洗 plan，写入 cleaned_data_path（parquet）；
+    若有 join_plan，则先执行 merge 再清洗，结果写入 merged_data_path。
+    """
     df = pd.read_csv(raw_data_path)
 
+    # ---- 先执行 join（如果有） ----
+    if join_plan and join_plan.get("joins"):
+        df = _execute_join_plan(df, join_plan, raw_data_path)
+
+    # ---- 清洗 ----
     deterministic_ops = _build_deterministic_ops(confirmed_schema)
     llm_ops, llm_available = _llm_supplementary_ops(confirmed_schema, deterministic_ops)
 
@@ -227,7 +290,12 @@ def run_transform(raw_data_path: str, confirmed_schema: dict, cleaned_data_path:
         except Exception as e:
             print(f"清洗操作 {op.get('op')} 执行失败，跳过: {e}")
 
+    # 写入 cleaned_data_path（始终写入，向后兼容）
     df.to_parquet(cleaned_data_path, index=False)
+
+    # 若有 join，额外写入 merged_data_path
+    if merged_data_path and join_plan and join_plan.get("joins"):
+        df.to_parquet(merged_data_path, index=False)
 
     return {
         "plan": plan,
@@ -235,4 +303,5 @@ def run_transform(raw_data_path: str, confirmed_schema: dict, cleaned_data_path:
         "column_count": len(df.columns),
         "columns": [str(c) for c in df.columns],
         "llm_available": llm_available,
+        "join_applied": bool(join_plan and join_plan.get("joins")),
     }

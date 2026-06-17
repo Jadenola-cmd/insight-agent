@@ -1,4 +1,4 @@
-# 开发状态
+﻿# 开发状态
 
 ## 已完成
 
@@ -120,6 +120,14 @@
 
 - （无，等待用户确认下一步）
 
+## 最近完成（2026-06-17）
+
+- [x] Node2 Join 方案确认 bug 修复（2026-06-17）：审查 codex 新增的 Join 方案确认中断
+  发现 `AnalysisState` 缺少 `session_id` 字段声明，LangGraph 静默丢弃 schema 外的 key
+  导致多表 join 方案生成一直读错目录（功能实际未生效，已用最小复现脚本验证）；
+  `api/core/state.py` 补字段修复。同时给单表上传场景跳过 Join Phase 2/3 的
+  `interrupt()`，避免强制多走一轮无意义确认。
+
 ## 最近完成（2026-06-16）
 
 - [x] 澄清流程发消息后直接跳上传的 bug 修复（2026-06-16）：`api/routes/v03.py`
@@ -168,7 +176,17 @@
       现有数据增量分析追加报告 / 需要新数据时引导补传，
       `/api/analyze/{session_id}/followup*` 已实现
 
-### 后端（待接入图，2026-06-15续14新增）
+
+- [x] Node2 Join方案确认中断点（2026-06-17）：`api/core/schema.py` 新增 JoinPlan 相关
+
+- [x] 会话摘要机制（2026-06-17）：`scripts/_TEMPLATE.md` + `scripts/generate_summary.py` + `sessions/` 目录，`AGENTS.md` 新增规则章节，`/summary` 指令触发，格式与 Claude Code 摘要统一
+      TypedDict/Pydantic 模型；`api/core/state.py` 新增 `proposed_join_plan`/
+      `confirmed_join_plan`/`merged_data_path`；`api/nodes/node2_confirmation.py`
+      双阶段确认（字段口径 → join方案）；`POST /api/analyze/{session_id}/confirm/join`
+      路由；`node3_transform.py` 固定 `pd.merge()` 执行 join；`node4_analysis.py`
+      优先读 `merged_data_path`；`pages/index.js` 新增 join 确认状态与时间线节点；
+      `components/JoinPlanForm.js` 新建 join 方案编辑组件
+
 - [ ] Node0/Node3预览/Node6 接入 `api/core/graph.py`（当前为独立路由+
       `session_state.json`，需设计 `clarification_history`/
       `transform_plan`/`followup_history` 如何随主流程checkpoint流转，
@@ -217,3 +235,4 @@
 - [x] **#8 运行动效 + 预估时间**：进度时间线 spinner 动画 + 诊断约10s/清洗约15s/分析约30s/报告约20s
 - [x] **#4 UI 整体美化**：`styles/globals.css` CSS变量 + `.ia-card`/`.btn-*`/`.ia-spinner`；
       粘性 Header 品牌栏；5个组件卡片阴影统一；按钮 hover 效果
+

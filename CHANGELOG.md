@@ -1,9 +1,51 @@
-# CHANGELOG
+﻿# CHANGELOG
 
 只追加，不删旧内容。回溯历史时手动提供给 Claude。
 
 ---
 
+## 2026-06-17（续）
+
+### Node2 Join 方案确认 bug 修复
+
+- `api/core/state.py`：`AnalysisState` 补充 `session_id: str` 字段。问题：LangGraph
+  会静默丢弃 schema 之外的 key，`_initial_state()` 传入的 `session_id` 一直没声明在
+  TypedDict 里，导致 `node2_confirmation.py` 内 `state.get("session_id", "")` 永远拿到
+  空字符串，多表 join 方案生成全部读错目录（自动降级成单表分支），功能实际未生效。
+  已用最小复现脚本验证 LangGraph 丢弃额外 key 的行为，修复后 graph 编译通过
+- `api/nodes/node2_confirmation.py`：单表上传场景（`tables/` 目录下只有 1 个文件）
+  直接返回空 join plan，跳过 Phase 2/3 的 `interrupt()`，避免单表用户被迫多走一轮
+  无意义的"选主表才能确认"步骤
+
+## 2026-06-17
+
+- 新增会话摘要机制：`scripts/_TEMPLATE.md`（模板）、`scripts/generate_summary.py`（生成脚本）、`sessions/`（输出目录）
+- `AGENTS.md` 新增"会话摘要规则"章节，约定 `/summary` 触发指令，格式与 Claude Code 摘要统一（`YYYY-MM-DD_HHMM.md` + YAML frontmatter）
+
+## 2026-06-17
+
+### Node2 Join方案确认中断点
+
+- `api/core/schema.py`：新增 `JoinEntry`/`JoinPlan` TypedDict 和 `JoinEntryRequest`/`JoinPlanRequest` Pydantic 模型
+- `api/core/state.py`：新增 `proposed_join_plan`/`confirmed_join_plan`/`merged_data_path` 三个字段
+- `api/core/paths.py`：新增 `merged_data_path()` helper
+- `api/nodes/node2_confirmation.py`：新建双阶段确认节点
+  - Phase 1：字段口径确认（interrupt 推送 diagnosis）
+  - Phase 2：LLM 生成 join_plan 提案，interrupt 推送 `join_plan` + `table_columns`
+  - LLM 规则：行数最多的事实表做主表、事实表间 left join、维度表 left join 补充属性
+  - LLM 不可用时降级：全 left join，主表选行数最多的，key 用 user_id
+- `api/core/graph.py`：`node2_confirmation` 改用 `run_node2_confirmation()`，`node3_transform`/`node4_analysis`/`node5_report`/`node6_followup` 优先使用 `merged_data_path`
+- `api/routes/analyze.py`：
+  - `_initial_state()` 新增 join 相关字段和 `session_id`
+  - `POST /api/analyze/{session_id}/confirm` SSE 新增 `join_plan/waiting_confirmation` 事件处理
+  - 新增 `POST /api/analyze/{session_id}/confirm/join` 路由，提交 join 方案确认
+- `api/routes/upload.py`：多文件上传时额外保存每个文件到 `tables/` 子目录（供 join 使用）
+- `api/nodes/node3_transform.py`：
+  - `run_transform()` 新增 `join_plan`/`merged_data_path` 参数
+  - 新增 `_execute_join_plan()`：固定 `pd.merge()` 调用，严禁 eval/exec
+  - 清洗前先执行 merge，结果写入 `merged_data_path`
+- `pages/index.js`：新增 `waiting_join_confirm` 状态和 `handleConfirmJoin` 处理函数，时间线新增"多表关联"节点
+- `components/JoinPlanForm.js`：新建 join 方案确认组件，支持主表选择、新增/删除 join 行、编辑关联键和 JOIN 方式，展示各表可用字段列表
 ## 2026-06-16
 
 ### P2 UI 美化 + 运行动效（#4 + #8）
@@ -58,6 +100,11 @@
 
 ---
 
+## 2026-06-17
+
+- 新增会话摘要机制：`scripts/_TEMPLATE.md`（模板）、`scripts/generate_summary.py`（生成脚本）、`sessions/`（输出目录）
+- `AGENTS.md` 新增"会话摘要规则"章节，约定 `/summary` 触发指令，格式与 Claude Code 摘要统一（`YYYY-MM-DD_HHMM.md` + YAML frontmatter）
+
 ### InsightAgent 部署到腾讯云服务器
 
 - 文件传输：本地打包（排除 venv/node_modules/.next/api/data）→ scp → 服务器解压到 `/www/insight-agent`
@@ -73,6 +120,11 @@
 **访问地址：`http://175.178.91.42:3001`**
 
 ---
+
+## 2026-06-17
+
+- 新增会话摘要机制：`scripts/_TEMPLATE.md`（模板）、`scripts/generate_summary.py`（生成脚本）、`sessions/`（输出目录）
+- `AGENTS.md` 新增"会话摘要规则"章节，约定 `/summary` 触发指令，格式与 Claude Code 摘要统一（`YYYY-MM-DD_HHMM.md` + YAML frontmatter）
 
 ### Playwright E2E 全流程验证通过
 
@@ -100,6 +152,11 @@
 
 ---
 
+## 2026-06-17
+
+- 新增会话摘要机制：`scripts/_TEMPLATE.md`（模板）、`scripts/generate_summary.py`（生成脚本）、`sessions/`（输出目录）
+- `AGENTS.md` 新增"会话摘要规则"章节，约定 `/summary` 触发指令，格式与 Claude Code 摘要统一（`YYYY-MM-DD_HHMM.md` + YAML frontmatter）
+
 ### Node0/Node3预览/Node6 接入 LangGraph graph.py
 
 **后端**
@@ -122,6 +179,11 @@
   新增 `analysisGoal` state，从 ClarificationChat `onComplete(goal)` 获取并在上传时随 FormData 传给后端
 
 ---
+
+## 2026-06-17
+
+- 新增会话摘要机制：`scripts/_TEMPLATE.md`（模板）、`scripts/generate_summary.py`（生成脚本）、`sessions/`（输出目录）
+- `AGENTS.md` 新增"会话摘要规则"章节，约定 `/summary` 触发指令，格式与 Claude Code 摘要统一（`YYYY-MM-DD_HHMM.md` + YAML frontmatter）
 
 ## 2026-06-15（续14）
 
@@ -311,6 +373,11 @@ Node5：
 
 ---
 
+## 2026-06-17
+
+- 新增会话摘要机制：`scripts/_TEMPLATE.md`（模板）、`scripts/generate_summary.py`（生成脚本）、`sessions/`（输出目录）
+- `AGENTS.md` 新增"会话摘要规则"章节，约定 `/summary` 触发指令，格式与 Claude Code 摘要统一（`YYYY-MM-DD_HHMM.md` + YAML frontmatter）
+
 ## 2026-06-15（续8）
 
 **Node4 分析模块：SegmentationModule + AttributionModule**
@@ -338,6 +405,11 @@ Node5：
 
 ---
 
+## 2026-06-17
+
+- 新增会话摘要机制：`scripts/_TEMPLATE.md`（模板）、`scripts/generate_summary.py`（生成脚本）、`sessions/`（输出目录）
+- `AGENTS.md` 新增"会话摘要规则"章节，约定 `/summary` 触发指令，格式与 Claude Code 摘要统一（`YYYY-MM-DD_HHMM.md` + YAML frontmatter）
+
 ## 2026-06-15（续7）
 
 **Node4 分析模块：TrendInsightModule + ComparisonModule**
@@ -363,6 +435,11 @@ Node5：
   chart_spec 为合法 bar option）。测试脚本已清理。
 
 ---
+
+## 2026-06-17
+
+- 新增会话摘要机制：`scripts/_TEMPLATE.md`（模板）、`scripts/generate_summary.py`（生成脚本）、`sessions/`（输出目录）
+- `AGENTS.md` 新增"会话摘要规则"章节，约定 `/summary` 触发指令，格式与 Claude Code 摘要统一（`YYYY-MM-DD_HHMM.md` + YAML frontmatter）
 
 ## 2026-06-15（续6）
 
@@ -391,6 +468,11 @@ Node5：
   验证 int/datetime 转换失败正确转为 `NaN`/`NaT`，未知 op 正确报错中止。
 
 ---
+
+## 2026-06-17
+
+- 新增会话摘要机制：`scripts/_TEMPLATE.md`（模板）、`scripts/generate_summary.py`（生成脚本）、`sessions/`（输出目录）
+- `AGENTS.md` 新增"会话摘要规则"章节，约定 `/summary` 触发指令，格式与 Claude Code 摘要统一（`YYYY-MM-DD_HHMM.md` + YAML frontmatter）
 
 ## 2026-06-15（续5）
 
@@ -505,3 +587,4 @@ Node5：
   Jinja2 等）与前端 `package.json`（Next.js 14 + ECharts）骨架
 - 尚未编写任何业务代码，等待用户确认后开始第一阶段实现（`AnalysisState`/
   `BaseAnalysisModule`/`AnalysisRegistry`）
+

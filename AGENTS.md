@@ -1,4 +1,4 @@
-# Business Analysis Agent — AGENTS.md
+﻿# Business Analysis Agent — AGENTS.md
 
 面向商业/经营分析师的AI协作提效工具（**不是业务侧自助分析平台**）作品集 Demo，同时作为
 可长期演进的真实产品：流程以 Step0 对话式问题澄清开始（明确分析目标与所需数据），随后
@@ -163,5 +163,26 @@ business-analysis-agent/
 每次会话结束前，若本次有代码改动，必须执行：
 1. **`CHANGELOG.md`**：追加一条，格式 `## YYYY-MM-DD` + 改动要点
 2. **`STATUS.md`**：更新"已完成/进行中/待开始"三个分区
+
+DEBT.md 按需更新：引入新技术债时追加，偿还旧债时标注或删除。
+
+
+---
+
+## 会话摘要规则
+
+用户输入 `/summary` 指令时，生成会话摘要到 `sessions/` 目录。
+
+1. **触发方式**：用户输入 `/summary`（或 `/summary <任务描述>`）时立即执行。
+2. **命名格式**：`YYYY-MM-DD_HHMM.md`（与 Claude Code 摘要统一格式）。
+3. **格式**：YAML frontmatter（`date`/`project`/`tags`）+ 主要任务 / 完成内容 / 关键决策 /
+   遗留事项，参考 `scripts/_TEMPLATE.md`。
+4. **辅助脚本**：`python scripts/generate_summary.py "<任务描述>"` 先生成模板，再填入
+   实际内容。
+5. **合并到 Claude Code 目录**：生成后在终端执行：
+   `copy sessions\*.md "D:\01_Knowledge\Projects\202606_InsightAgent\会话摘要\"`
+   将 Codex 摘要合并到 Claude Code 摘要目录。
+6. **与 CHANGELOG 的区别**：CHANGELOG 记录"做了什么"（面向产品迭代），会话摘要记录
+   "怎么做的 + 为什么这么做 + 接下来做什么"（面向开发连续性）。
 
 `DEBT.md` 按需更新：引入新技术债时追加，偿还旧债时标注或删除。

@@ -16,5 +16,9 @@ def cleaned_data_path(session_id: str) -> Path:
     return session_dir(session_id) / "cleaned.parquet"
 
 
+def merged_data_path(session_id: str) -> Path:
+    return session_dir(session_id) / "merged.parquet"
+
+
 def report_pdf_path(session_id: str) -> Path:
     return session_dir(session_id) / "report.pdf"

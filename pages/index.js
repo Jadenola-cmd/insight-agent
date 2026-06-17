@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import ConfirmationForm from "../components/ConfirmationForm";
+import JoinPlanForm from "../components/JoinPlanForm";
 import AnalysisReport from "../components/AnalysisReport";
 import ClarificationChat from "../components/ClarificationChat";
 import TransformPreview from "../components/TransformPreview";
@@ -11,6 +12,7 @@ const NODE_LABELS = {
   clarification: "问题澄清",
   diagnosis: "数据诊断",
   confirmation: "口径确认",
+  join_plan: "多表关联",
   transform: "数据清洗",
   analysis: "智能分析",
   report: "报告生成",
@@ -40,7 +42,7 @@ const STEP_ETA = {
 // 渲染时按此顺序过滤已收到事件的节点
 const STEP_ORDER = [
   "clarification", "diagnosis", "confirmation",
-  "transform", "analysis", "report", "followup",
+  "join_plan", "transform", "analysis", "report", "followup",
 ];
 
 function getStepState(status) {
@@ -101,6 +103,10 @@ export default function Home() {
   const [transformPlan, setTransformPlan] = useState([]);
   const [confirmPhase, setConfirmPhase] = useState(null);
 
+  // Join 方案确认
+  const [joinPlan, setJoinPlan] = useState(null);
+  const [tableColumns, setTableColumns] = useState({});
+
   const reset = () => {
     eventSourceRef.current?.close();
     eventSourceRef.current = null;
@@ -115,6 +121,8 @@ export default function Home() {
     setPendingSchema(null);
     setTransformPlan([]);
     setConfirmPhase(null);
+    setJoinPlan(null);
+    setTableColumns({});
   };
 
   const handleUpload = async () => {
@@ -148,16 +156,16 @@ export default function Home() {
         setDiagnosis(payload.data);
         setStatus("waiting_confirmation");
       } else if (payload.status === "error") {
-        setErrorMessage(payload.data?.message || "未知错误");
         setStatus("error");
+        setErrorMessage(payload.data?.message || "未知错误");
       }
       if (TERMINAL_EVENTS.has(key)) es.close();
     };
     es.onerror = () => {
       es.close();
-      if (status === "streaming") {
+      if (status !== "waiting_confirmation" && status !== "error") {
         setStatus("error");
-        setErrorMessage("与服务端的连接中断");
+        setErrorMessage("SSE 连接中断");
       }
     };
   };
@@ -166,22 +174,33 @@ export default function Home() {
     setPendingSchema(confirmedSchema);
     setStatus("confirming");
     setConfirmPhase("schema");
-    setErrorMessage(null);
+
     try {
       const res = await fetch(`${API_URL}/api/analyze/${sessionId}/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(confirmedSchema),
       });
-      if (!res.ok) throw new Error(`提交失败：HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`确认失败：HTTP ${res.status}`);
+
       await readSseStream(res, (payload) => {
+        const key = `${payload.node}/${payload.status}`;
         setEvents((prev) => [...prev, payload]);
-        if (payload.node === "transform" && payload.status === "waiting_preview") {
-          setTransformPlan(payload.data?.transform_plan ?? []);
+
+        if (payload.node === "confirmation" && payload.status === "confirmed") {
+          // 口径已确认，等待 join 方案
+        } else if (payload.node === "join_plan" && payload.status === "waiting_confirmation") {
+          setJoinPlan(payload.data.join_plan);
+          setTableColumns(payload.data.table_columns || {});
+          setStatus("waiting_join_confirm");
+          setConfirmPhase(null);
+        } else if (payload.node === "transform" && payload.status === "waiting_preview") {
+          setTransformPlan(payload.data.transform_plan);
           setStatus("waiting_transform_confirm");
+          setConfirmPhase(null);
         } else if (payload.status === "error") {
-          setErrorMessage(payload.data?.message || "未知错误");
           setStatus("error");
+          setErrorMessage(payload.data?.message || "未知错误");
         }
       });
     } catch (err) {
@@ -190,35 +209,67 @@ export default function Home() {
     }
   };
 
-  const handleCancelTransform = () => {
-    setPendingSchema(null);
-    setTransformPlan([]);
-    setStatus("waiting_confirmation");
+  const handleConfirmJoin = async (confirmedJoinPlan) => {
+    setStatus("confirming");
+    setConfirmPhase("join");
+
+    try {
+      const res = await fetch(`${API_URL}/api/analyze/${sessionId}/confirm/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(confirmedJoinPlan),
+      });
+      if (!res.ok) throw new Error(`确认失败：HTTP ${res.status}`);
+
+      await readSseStream(res, (payload) => {
+        const key = `${payload.node}/${payload.status}`;
+        setEvents((prev) => [...prev, payload]);
+
+        if (payload.node === "join_plan" && payload.status === "confirmed") {
+          // join 方案已确认
+        } else if (payload.node === "transform" && payload.status === "waiting_preview") {
+          setTransformPlan(payload.data.transform_plan);
+          setStatus("waiting_transform_confirm");
+          setConfirmPhase(null);
+        } else if (payload.status === "error") {
+          setStatus("error");
+          setErrorMessage(payload.data?.message || "未知错误");
+        }
+      });
+    } catch (err) {
+      setStatus("error");
+      setErrorMessage(err.message);
+    }
   };
 
   const handleRunPipeline = async () => {
     setStatus("confirming");
     setConfirmPhase("pipeline");
-    setErrorMessage(null);
+
     try {
       const res = await fetch(`${API_URL}/api/analyze/${sessionId}/transform/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ approved: true }),
       });
-      if (!res.ok) throw new Error(`提交失败：HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`确认失败：HTTP ${res.status}`);
+
       await readSseStream(res, (payload) => {
+        const key = `${payload.node}/${payload.status}`;
         setEvents((prev) => [...prev, payload]);
-        if (payload.node === "analysis" && payload.status === "done") {
-          setAnalysisResult(payload.data);
+
+        if (payload.node === "transform" && payload.status === "done") {
+          // 清洗完成
+        } else if (payload.node === "analysis" && payload.status === "done") {
+          setAnalysisResult({ results: payload.data.results, charts: payload.data.charts });
         } else if (payload.node === "report" && payload.status === "done") {
           setReportResult(payload.data);
-          setStatus("done");
         } else if (payload.node === "followup" && payload.status === "ready") {
           setStatus("done");
+          setConfirmPhase(null);
         } else if (payload.status === "error") {
-          setErrorMessage(payload.data?.message || "未知错误");
           setStatus("error");
+          setErrorMessage(payload.data?.message || "未知错误");
         }
       });
     } catch (err) {
@@ -227,32 +278,51 @@ export default function Home() {
     }
   };
 
-  // 每个节点只保留最新 status
-  const stepStatus = events.reduce((acc, evt) => {
-    acc[evt.node] = evt.status;
-    return acc;
-  }, {});
-  const activeSteps = STEP_ORDER.filter((node) => node in stepStatus);
+  const handleCancelTransform = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/analyze/${sessionId}/transform/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approved: false }),
+      });
+      if (res.ok) {
+        reset();
+      }
+    } catch (err) {
+      setStatus("error");
+      setErrorMessage(err.message);
+    }
+  };
+
+  // ---- 构建时间线数据 ----
+  const nodeStatusMap = {};
+  for (const evt of events) {
+    nodeStatusMap[evt.node] = evt.status;
+  }
+
+  const timelineNodes = [];
+  for (const node of STEP_ORDER) {
+    const st = nodeStatusMap[node];
+    if (!st) continue;
+    if (node === "join_plan" && st === "waiting_confirmation" && nodeStatusMap["confirmation"] === "confirmed") {
+      timelineNodes.push({ node, status: st });
+    } else if (node !== "join_plan") {
+      timelineNodes.push({ node, status: st });
+    }
+  }
 
   return (
     <div style={styles.page}>
       <header style={styles.header}>
         <div style={styles.headerInner}>
           <span style={styles.logo}>InsightAgent</span>
-          <span style={styles.headerDesc}>业务数据智能分析助手</span>
+          <span style={styles.headerDesc}>商业分析智能体</span>
         </div>
       </header>
 
       <main style={styles.main}>
-        {!clarificationDone && (
-          <ClarificationChat
-            apiUrl={API_URL}
-            sessionId={clarifySessionId}
-            onComplete={(goal) => { setAnalysisGoal(goal || ""); setClarificationDone(true); }}
-          />
-        )}
-
-        {clarificationDone && (
+        {/* 上传区 */}
+        {status === "idle" && (
           <div className="ia-card">
             <h2 style={styles.sectionTitle}>上传数据</h2>
             <div style={styles.uploadRow}>
@@ -260,50 +330,50 @@ export default function Home() {
                 type="file"
                 accept=".csv"
                 multiple
-                onChange={(e) => setFiles(Array.from(e.target.files || []))}
-                disabled={status === "uploading" || status === "streaming"}
+                onChange={(e) => setFiles(Array.from(e.target.files))}
                 style={styles.fileInput}
               />
-              <button
-                className="btn btn-primary"
-                onClick={handleUpload}
-                disabled={files.length === 0 || status === "uploading" || status === "streaming"}
-              >
-                {status === "uploading" ? "上传中..." : "上传并开始分析"}
+              <button className="btn btn-primary" onClick={handleUpload} disabled={files.length === 0}>
+                开始分析
               </button>
             </div>
-            {files.length > 1 && (
-              <p style={styles.fileCount}>已选 {files.length} 个文件，将按列名纵向合并</p>
+            {files.length > 0 && (
+              <p style={styles.fileCount}>
+                已选 {files.length} 个文件
+                {files.length > 1 ? "，将纵向合并" : ""}
+              </p>
             )}
-            {sessionId && <p style={styles.sessionId}>会话 ID：{sessionId}</p>}
           </div>
         )}
 
-        {errorMessage && (
-          <div style={styles.error}>
+        {/* 错误提示 */}
+        {status === "error" && errorMessage && (
+          <div className="ia-card" style={styles.error}>
             <strong>错误：</strong>{errorMessage}
+            <div style={{ marginTop: "0.5rem" }}>
+              <button className="btn btn-outline" onClick={reset}>重新开始</button>
+            </div>
           </div>
         )}
 
         {/* 时间线进度 */}
-        {activeSteps.length > 0 && (
+        {timelineNodes.length > 0 && (
           <div className="ia-card">
-            <h2 style={styles.sectionTitle}>流程进度</h2>
+            <h2 style={styles.sectionTitle}>分析进度</h2>
             <div style={styles.timeline}>
-              {activeSteps.map((node) => {
-                const st = stepStatus[node];
+              {timelineNodes.map(({ node, status: st }) => {
                 const state = getStepState(st);
                 return (
                   <div key={node} style={styles.timelineRow}>
                     <div style={styles.timelineIconWrap}>
-                      {state === "running" ? (
-                        <span className="ia-spinner" />
-                      ) : state === "done" ? (
+                      {state === "done" ? (
                         <span style={styles.iconDone}>✓</span>
+                      ) : state === "running" ? (
+                        <span className="ia-spinner" style={{ width: 16, height: 16 }} />
                       ) : state === "waiting" ? (
-                        <span style={styles.iconWaiting}>⏸</span>
+                        <span style={styles.iconWaiting}>⏳</span>
                       ) : state === "error" ? (
-                        <span style={styles.iconError}>✕</span>
+                        <span style={styles.iconError}>✗</span>
                       ) : (
                         <span style={styles.iconDot}>·</span>
                       )}
@@ -330,6 +400,15 @@ export default function Home() {
           <ConfirmationForm diagnosis={diagnosis} onSubmit={handlePrepareTransform} submitting={false} />
         )}
 
+        {status === "waiting_join_confirm" && joinPlan && (
+          <JoinPlanForm
+            joinPlan={joinPlan}
+            tableColumns={tableColumns}
+            onSubmit={handleConfirmJoin}
+            submitting={false}
+          />
+        )}
+
         {status === "waiting_transform_confirm" && (
           <TransformPreview
             apiUrl={API_URL}
@@ -346,6 +425,8 @@ export default function Home() {
             <span style={styles.waitingText}>
               {confirmPhase === "schema"
                 ? "口径已确认，正在准备清洗计划..."
+                : confirmPhase === "join"
+                ? "关联方案已确认，正在准备清洗计划..."
                 : "正在清洗数据并执行分析，请稍候..."}
             </span>
           </div>
