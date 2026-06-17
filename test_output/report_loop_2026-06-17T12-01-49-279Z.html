@@ -1,0 +1,224 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="utf-8">
+<title>业务分析报告</title>
+<style>
+  @page {
+    size: A4;
+    margin: 2cm;
+  }
+  body {
+    font-family: "Noto Sans CJK SC", "Noto Sans SC", "WenQuanYi Zen Hei",
+                  "Microsoft YaHei", "SimHei", "Droid Sans Fallback", sans-serif;
+    color: #1f2329;
+    line-height: 1.6;
+    font-size: 11pt;
+  }
+  h1 {
+    font-size: 20pt;
+    border-bottom: 2px solid #5470c6;
+    padding-bottom: 0.3em;
+  }
+  h2 {
+    font-size: 14pt;
+    margin-top: 1.6em;
+    color: #2f3542;
+  }
+  .module {
+    page-break-inside: avoid;
+    margin-bottom: 1.5em;
+  }
+  .confidence {
+    display: inline-block;
+    padding: 0.1em 0.6em;
+    border-radius: 0.3em;
+    font-size: 9pt;
+    font-weight: bold;
+    color: #fff;
+    margin-left: 0.5em;
+  }
+  .confidence-高 { background-color: #67c23a; }
+  .confidence-中 { background-color: #e6a23c; }
+  .confidence-低 { background-color: #f56c6c; }
+  .confidence-reasons {
+    font-size: 9pt;
+    color: #909399;
+    margin: 0.2em 0 0.8em 0;
+  }
+  .narrative p {
+    margin: 0.4em 0;
+  }
+  .narrative .label {
+    font-weight: bold;
+    margin-right: 0.4em;
+  }
+  .chart-placeholder {
+    border: 1px dashed #c0c4cc;
+    border-radius: 0.3em;
+    padding: 0.8em;
+    margin: 0.6em 0;
+    background-color: #f7f8fa;
+  }
+  .chart-placeholder .chart-title {
+    font-weight: bold;
+    margin-bottom: 0.4em;
+  }
+  .chart-placeholder pre {
+    font-size: 8pt;
+    color: #606266;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0;
+  }
+</style>
+</head>
+<body>
+  <h1>业务分析报告</h1>
+
+  
+  <div class="module">
+    <h2>
+      趋势/时序 · trend_insight
+      <span class="confidence confidence-低">置信度：低</span>
+    </h2>
+    <ul class="confidence-reasons">
+      
+      <li>样本量 16237 行（高）</li>
+      
+      <li>相关字段平均空值率 42.6%（低）</li>
+      
+      <li>分析方法：趋势/时序（高）</li>
+      
+    </ul>
+
+    
+    <div class="chart-placeholder">
+      <div class="chart-title">图表：credit_limit 均值趋势（D）（ECharts渲染待接入，见 docs/ARCHITECTURE.md 第7节）</div>
+      <pre>{"color": ["#5470c6", "#91cc75", "#fac858", "#ee6666", "#73c0de", "#3ba272"], "legend": {}, "series": [{"data": [26008.642, 26621.3483, 25071.875, 27526.25, 27333.8235, 27152.7778, 27662.5, 25635.2113, 27081.8182, 29778.2051, 30211.236, 29035.1648, 26757.5342, 28021.7391, 27092.5, 27586.8421, 26419.7802, 29829.8851, 28684.0, 28052.381, 28426.1905, 25603.6585, 28067.0588, 28996.9231, 22735.2941, 27839.7959, 26800.0, 28852.3256, 24557.6923, 28778.75], "markPoint": {"data": [{"coord": ["2026-04-25", 22735.2941], "name": "\u5f02\u5e38\u70b9"}]}, "name": "credit_limit", "type": "line"}], "title": {"text": "credit_limit \u5747\u503c\u8d8b\u52bf\uff08D\uff09"}, "tooltip": {"trigger": "axis"}, "xAxis": {"data": ["2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04", "2026-04-05", "2026-04-06", "2026-04-07", "2026-04-08", "2026-04-09", "2026-04-10", "2026-04-11", "2026-04-12", "2026-04-13", "2026-04-14", "2026-04-15", "2026-04-16", "2026-04-17", "2026-04-18", "2026-04-19", "2026-04-20", "2026-04-21", "2026-04-22", "2026-04-23", "2026-04-24", "2026-04-25", "2026-04-26", "2026-04-27", "2026-04-28", "2026-04-29", "2026-04-30"], "type": "category"}, "yAxis": {"type": "value"}}</pre>
+    </div>
+    
+
+    <div class="narrative">
+      <p><span class="label">结论：</span>整体呈上升趋势，但4月25日出现显著异常低值。</p>
+      <p><span class="label">数据支撑：</span>趋势方向为上升，变化幅度为10.65%；异常点监测显示，4月25日的平均credit_limit为22735.29，其Z分数为-2.88，属于异常低值。</p>
+      <p><span class="label">运营建议：</span>建议针对4月25日异常低值进行溯源，排查当天是否有批量低额度申请、系统错误或策略变更；同时继续监测后续日均值是否恢复至上升趋势。如异常由风控模型或审批策略短期变动引起，需评估其对整体业务的影响并优化控制阈值。</p>
+    </div>
+  </div>
+  
+  <div class="module">
+    <h2>
+      对比/分组 · comparison
+      <span class="confidence confidence-低">置信度：低</span>
+    </h2>
+    <ul class="confidence-reasons">
+      
+      <li>样本量 16237 行（高）</li>
+      
+      <li>相关字段平均空值率 42.6%（低）</li>
+      
+      <li>分析方法：对比/分组（高）</li>
+      
+    </ul>
+
+    
+    <div class="chart-placeholder">
+      <div class="chart-title">图表：event_name 各分组 credit_limit 对比（mean）（ECharts渲染待接入，见 docs/ARCHITECTURE.md 第7节）</div>
+      <pre>{"color": ["#5470c6", "#91cc75", "#fac858", "#ee6666", "#73c0de", "#3ba272"], "legend": {}, "series": [{"data": [27567.624, 27410.0737], "name": "credit_limit", "type": "bar"}], "title": {"text": "event_name \u5404\u5206\u7ec4 credit_limit \u5bf9\u6bd4\uff08mean\uff09"}, "tooltip": {"trigger": "axis"}, "xAxis": {"data": ["touch_click", "click"], "type": "category"}, "yAxis": {"type": "value"}}</pre>
+    </div>
+    
+
+    <div class="narrative">
+      <p><span class="label">结论：</span>touch_click事件的平均授信额度略高于click事件</p>
+      <p><span class="label">数据支撑：</span>touch_click平均值为27567.624，click平均值为27410.0737，touch_click占比50.14%略高于click的49.86%</p>
+      <p><span class="label">运营建议：</span>建议优化click事件的授信策略，分析其额度较低的原因，并考虑在touch_click场景中推广高额度转化策略</p>
+    </div>
+  </div>
+  
+  <div class="module">
+    <h2>
+      用户/人群 · segmentation
+      <span class="confidence confidence-低">置信度：低</span>
+    </h2>
+    <ul class="confidence-reasons">
+      
+      <li>样本量 16237 行（高）</li>
+      
+      <li>相关字段平均空值率 42.6%（低）</li>
+      
+      <li>分析方法：用户/人群（高）</li>
+      
+    </ul>
+
+    
+    <div class="chart-placeholder">
+      <div class="chart-title">图表：user_id 分群（按 credit_limit）（ECharts渲染待接入，见 docs/ARCHITECTURE.md 第7节）</div>
+      <pre>{"color": ["#5470c6", "#91cc75", "#fac858", "#ee6666", "#73c0de", "#3ba272"], "legend": {}, "series": [{"data": [{"name": "\u4f4e", "value": 137}, {"name": "\u4e2d\u4f4e", "value": 137}, {"name": "\u4e2d\u9ad8", "value": 137}, {"name": "\u9ad8", "value": 137}], "name": "\u5b9e\u4f53\u6570\u91cf", "radius": "60%", "type": "pie"}], "title": {"text": "user_id \u5206\u7fa4\uff08\u6309 credit_limit\uff09"}, "tooltip": {"trigger": "item"}}</pre>
+    </div>
+    
+
+    <div class="narrative">
+      <p><span class="label">结论：</span>高信用额度用户贡献了超过四成的总信用额度，是价值贡献的核心群体。</p>
+      <p><span class="label">数据支撑：</span>结果显示，高信用额度段用户数占比25.0%，但贡献的信用额度总额占比高达42.24%，人均额度46048.18元，远高于其他群体。</p>
+      <p><span class="label">运营建议：</span>建议优先维护高额度用户，提供专属权益和更高额度激励，同时针对中低和低额度用户设计提额活动，提升其额度贡献占比。</p>
+    </div>
+  </div>
+  
+  <div class="module">
+    <h2>
+      贡献/驱动因素 · attribution
+      <span class="confidence confidence-低">置信度：低</span>
+    </h2>
+    <ul class="confidence-reasons">
+      
+      <li>样本量 16237 行（高）</li>
+      
+      <li>相关字段平均空值率 76.0%（低）</li>
+      
+      <li>分析方法：贡献/驱动因素（中）</li>
+      
+    </ul>
+
+    
+    <div class="chart-placeholder">
+      <div class="chart-title">图表：credit_limit 的驱动因素贡献占比（ECharts渲染待接入，见 docs/ARCHITECTURE.md 第7节）</div>
+      <pre>{"color": ["#5470c6", "#91cc75", "#fac858", "#ee6666", "#73c0de", "#3ba272"], "legend": {}, "series": [{"data": [83.59, 10.1, 3.18, 1.6, 1.52], "name": "\u8d21\u732e\u5360\u6bd4", "type": "bar"}], "title": {"text": "credit_limit \u7684\u9a71\u52a8\u56e0\u7d20\u8d21\u732e\u5360\u6bd4"}, "tooltip": {"trigger": "axis"}, "xAxis": {"data": ["loan_amount", "interest_rate", "actual_rate", "repay_period", "credit_score"], "type": "category"}, "yAxis": {"name": "\u8d21\u732e\u5360\u6bd4(%)", "type": "value"}}</pre>
+    </div>
+    
+
+    <div class="narrative">
+      <p><span class="label">结论：</span>贷款金额是影响授信额度最关键的正面驱动因素，而利率是主要的负面因素。</p>
+      <p><span class="label">数据支撑：</span>模型R方为0.6911，贷款金额的贡献占比达83.59%（系数0.7973），远高于其他变量；利率贡献占比10.1%（系数-0.0963），为唯一较大负向因素；实际利率、还款期限、信用评分贡献占比依次为3.18%、1.60%、1.52%。</p>
+      <p><span class="label">运营建议：</span>建议重点监控贷款金额与利率的联动调整：在风险可控范围内适当扩大高贷款金额用户的授信额度；同时针对利率敏感的高风险客户，可考虑通过差异化定价控制授信额度上限，以平衡收益与风险。</p>
+    </div>
+  </div>
+  
+  <div class="module">
+    <h2>
+      转化/留存 · funnel
+      <span class="confidence confidence-低">置信度：低</span>
+    </h2>
+    <ul class="confidence-reasons">
+      
+      <li>样本量 16237 行（高）</li>
+      
+      <li>相关字段平均空值率 59.8%（低）</li>
+      
+      <li>分析方法：转化/留存（高）</li>
+      
+    </ul>
+
+    
+    <div class="chart-placeholder">
+      <div class="chart-title">图表：转化漏斗（ECharts渲染待接入，见 docs/ARCHITECTURE.md 第7节）</div>
+      <pre>{"color": ["#5470c6", "#91cc75", "#fac858", "#ee6666", "#73c0de", "#3ba272"], "legend": {}, "series": [{"data": [{"name": "\u66dd\u5149", "value": 3600}, {"name": "\u7533\u8bf7", "value": 1008}, {"name": "\u6388\u4fe1", "value": 811}, {"name": "\u653e\u6b3e", "value": 384}], "label": {"position": "inside", "show": true}, "left": "10%", "name": "\u8f6c\u5316\u4eba\u6570", "type": "funnel", "width": "80%"}], "title": {"text": "\u8f6c\u5316\u6f0f\u6597"}, "tooltip": {"formatter": "{b} : {c}", "trigger": "item"}}</pre>
+    </div>
+    
+
+    <div class="narrative">
+      <p><span class="label">结论：</span>转化流程中从申请到授信环节的转化率最高，而放款环节的转化率最低，是整个漏斗的主要瓶颈。</p>
+      <p><span class="label">数据支撑：</span>曝光到申请的转化率为28.0%，申请到授信的转化率为80.46%，授信到放款的转化率为47.35%；一阶段转化率从曝光到放款依次为100.0%、28.0%、22.53%、10.67%，放款环节的绝对转化率最低。</p>
+      <p><span class="label">运营建议：</span>针对放款环节（转化率仅47.35%）进行专项分析，识别用户未完成放款的原因（如额度不满意、审批流程繁琐、利率过高），优化授信后引导和放款流程，提升从授信到放款的转化；同时维持申请到授信的高转化优势，并探索提升曝光到申请转化率（28.0%）的策略。</p>
+    </div>
+  </div>
+  
+
+</body></html>

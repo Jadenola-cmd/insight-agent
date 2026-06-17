@@ -6,14 +6,14 @@
 
 ## 当前状态
 
-### 待解决
+### 已解决
 
-- **分析模块未覆盖转化漏斗（曝光→申请→授信→放款）**（2026-06-17 QA loop发现）：
-  当前Trend/Comparison/Segmentation/Attribution都是围绕"维度属性"（如credit_score）
-  做趋势/对比/分群/归因，对于多表join场景（事件表+申请/放款事实表+用户维度表），
-  没有任何模块统计各业务阶段的计数与转化率（如曝光数→申请数→放款数及环比）。
-  需要新增一个"转化/留存"类分析模块，按 user_id/apply_id/loan_id 是否非空判断
-  该用户是否进入对应阶段，统计阶段计数和转化率。工作量较大，未在本次QA loop中实现。
+- ~~**分析模块未覆盖转化漏斗（曝光→申请→授信→放款）**~~（2026-06-17发现，
+  2026-06-17解决）：新增`api/modules/funnel.py`（`FunnelModule`，category=
+  转化/留存），按 user_id 启发式识别各阶段（列名关键词+该列是否非空），输出
+  阶段人数/环比转化率，已注册进默认分析流程。详见CHANGELOG.md 2026-06-17续4。
+
+### 待解决
 
 - **LangGraph checkpoint 使用 `MemorySaver`（纯内存）**：`api/core/graph.py`
   当前用 `MemorySaver` 按 `thread_id = session_id` 隔离会话。这意味着：

@@ -120,6 +120,17 @@
 
 - （无，等待用户确认下一步）
 
+## 最近完成（2026-06-17 续4，新增转化漏斗分析模块）
+
+- [x] `api/modules/funnel.py`：`FunnelModule`（category=转化/留存），启发式识别
+      "曝光→申请→授信→放款"漏斗各阶段，输出阶段人数/环比转化率/总转化率，
+      ECharts原生funnel图。已注册进`registry.py`默认列表，`node5_report.py`
+      补充对应置信度配置。补齐DEBT.md记录的漏斗覆盖缺口（已标注解决）。
+- [x] 接入回归中发现并修复3个bug（详见CHANGELOG.md）：①漏斗阶段判定列误选
+      维度表同名字段致授信人数超过申请人数 ②叙事生成多环节比较数值推理错误
+      ③`drop_duplicates`无保护阈值，曾致99.5%数据被误删且全流程不报错
+      （较严重，已加保护阈值）。修复后连续2轮全流程回归确认稳定。
+
 ## 最近完成（2026-06-17 续3，自动化QA Loop）
 
 - [x] Playwright自动化QA Loop（`test_output/qa_loop.js`）跑通5表Join场景全流程

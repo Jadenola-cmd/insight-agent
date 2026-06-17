@@ -183,7 +183,14 @@ async function main() {
       fail("120秒内未完成分析+报告生成");
       throw new Error("Path E failed: " + e.message);
     }
-    await wait(2000);
+    // canvas是next/dynamic({ssr:false})懒加载的echarts-for-react渲染出来的，
+    // 固定sleep时间不稳定（之前出现过2秒不够导致误判"无图表"），改为等到出现
+    // 第一个canvas再继续，超时也不阻断（后面会再检查一次数量）
+    try {
+      await page.locator("canvas").first().waitFor({ timeout: 15000 });
+    } catch (_) {
+      // 留给后面的chartCount检查报告真实结果
+    }
     const moduleHeaders = await page.locator("h3").allTextContents();
     ok(`分析模块: ${moduleHeaders.join("、")}`);
     const hasTrend = moduleHeaders.some((t) => t.includes("趋势"));
