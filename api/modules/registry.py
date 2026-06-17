@@ -3,6 +3,7 @@ import pandas as pd
 from api.modules.attribution import AttributionModule
 from api.modules.base import BaseAnalysisModule
 from api.modules.comparison import ComparisonModule
+from api.modules.funnel import FunnelModule
 from api.modules.prediction import PredictionModule
 from api.modules.segmentation import SegmentationModule
 from api.modules.trend import TrendInsightModule
@@ -35,6 +36,7 @@ def _build_default_registry() -> AnalysisRegistry:
         ComparisonModule(),
         SegmentationModule(),
         AttributionModule(),
+        FunnelModule(),
         PredictionModule(),
     ):
         registry.register(module)

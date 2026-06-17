@@ -17,6 +17,7 @@ METHOD_LEVELS = {
     "对比/分组": "高",
     "用户/人群": "高",
     "贡献/驱动因素": "中",
+    "转化/留存": "高",
     "预测": "低",
 }
 
@@ -26,6 +27,7 @@ MODULE_RELEVANT_COLUMNS = {
     "comparison": lambda m: [m["category_column"], m["value_column"]],
     "segmentation": lambda m: [m["id_column"], m["value_column"]],
     "attribution": lambda m: [m["dependent_column"], *m["independent_columns"]],
+    "funnel": lambda m: [s["column"] for s in m["stages"]],
 }
 
 
