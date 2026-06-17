@@ -1,0 +1,126 @@
+:root {
+  --c-primary: #5470c6;
+  --c-primary-hover: #4563ba;
+  --c-primary-light: #ecf5ff;
+  --c-success: #67c23a;
+  --c-warning: #e6a23c;
+  --c-danger: #f56c6c;
+  --c-text: #303133;
+  --c-text-regular: #606266;
+  --c-text-muted: #909399;
+  --c-border: #e4e7ed;
+  --c-border-light: #f2f3f5;
+  --c-bg-page: #f0f2f5;
+  --c-bg-card: #ffffff;
+  --radius: 10px;
+  --shadow: 0 2px 16px rgba(0, 0, 0, 0.07);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--c-bg-page);
+  color: var(--c-text);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* ---- 动画 ---- */
+@keyframes ia-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes ia-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.ia-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--c-border);
+  border-top-color: var(--c-primary);
+  border-radius: 50%;
+  animation: ia-spin 0.7s linear infinite;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.ia-pulse {
+  animation: ia-pulse 1.4s ease-in-out infinite;
+}
+
+/* ---- 按钮 ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 1.4rem;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  border: none;
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.btn-primary {
+  background: var(--c-primary);
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--c-primary-hover);
+}
+
+.btn-outline {
+  background: #fff;
+  color: var(--c-primary);
+  border: 1px solid var(--c-primary);
+}
+.btn-outline:hover:not(:disabled) {
+  background: var(--c-primary-light);
+}
+
+.btn-ghost {
+  background: #fff;
+  color: var(--c-text-regular);
+  border: 1px solid var(--c-border);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--c-border-light);
+}
+
+/* ---- 卡片 ---- */
+.ia-card {
+  background: var(--c-bg-card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.2rem 1.5rem;
+  margin-top: 1rem;
+}
+
+/* ---- 输入框 ---- */
+.ia-input {
+  padding: 0.45rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid var(--c-border);
+  font-size: 0.9rem;
+  transition: border-color 0.15s;
+  font-family: inherit;
+}
+.ia-input:focus {
+  outline: none;
+  border-color: var(--c-primary);
+}

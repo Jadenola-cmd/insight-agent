@@ -1,0 +1,508 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InsightAgent - 项目全览图</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 40px 20px;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 50px;
+  }
+  .header .logo {
+    font-size: 48px;
+    font-weight: 800;
+    background: linear-gradient(135deg, #667eea, #764ba2, #f093fb);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 8px;
+  }
+  .header .subtitle {
+    font-size: 18px;
+    color: #a0a0c0;
+    letter-spacing: 2px;
+  }
+  .header .tagline {
+    margin-top: 16px;
+    font-size: 15px;
+    color: #8888aa;
+    max-width: 700px;
+    margin-left: auto;
+    margin-right: auto;
+    line-height: 1.8;
+  }
+
+  /* Section */
+  .section {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 32px;
+    backdrop-filter: blur(10px);
+  }
+  .section-title {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-title .icon {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+
+  /* Value Proposition */
+  .value-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+  }
+  .value-card {
+    background: rgba(255,255,255,0.05);
+    border-radius: 12px;
+    padding: 24px;
+    border: 1px solid rgba(255,255,255,0.06);
+    transition: transform 0.2s, border-color 0.2s;
+  }
+  .value-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(102,126,234,0.4);
+  }
+  .value-card .card-icon { font-size: 28px; margin-bottom: 12px; }
+  .value-card h4 { font-size: 15px; margin-bottom: 8px; color: #ccc; }
+  .value-card p { font-size: 13px; color: #888; line-height: 1.7; }
+
+  /* Flow */
+  .flow-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    align-items: center;
+  }
+  .flow-step {
+    background: linear-gradient(135deg, rgba(102,126,234,0.2), rgba(118,75,162,0.2));
+    border: 1px solid rgba(102,126,234,0.3);
+    border-radius: 12px;
+    padding: 16px 20px;
+    text-align: center;
+    min-width: 100px;
+    transition: transform 0.2s;
+  }
+  .flow-step:hover { transform: translateY(-3px); }
+  .flow-step .step-num {
+    font-size: 12px;
+    color: #667eea;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .flow-step .step-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #ddd;
+  }
+  .flow-step .step-desc {
+    font-size: 11px;
+    color: #888;
+    margin-top: 4px;
+  }
+  .flow-arrow {
+    color: #667eea;
+    font-size: 20px;
+    font-weight: 700;
+  }
+
+  /* Architecture */
+  .arch-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .arch-orch {
+    background: linear-gradient(135deg, #f093fb, #f5576c);
+    border-radius: 12px;
+    padding: 14px 40px;
+    font-weight: 700;
+    font-size: 15px;
+    color: #fff;
+    text-align: center;
+    box-shadow: 0 4px 20px rgba(240,147,251,0.3);
+  }
+  .arch-arrow-down {
+    color: #667eea;
+    font-size: 24px;
+    margin: 4px 0;
+  }
+  .arch-nodes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    width: 100%;
+  }
+  .arch-node {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px;
+    padding: 14px 18px;
+    min-width: 150px;
+    text-align: center;
+    transition: transform 0.2s;
+  }
+  .arch-node:hover { transform: translateY(-2px); }
+  .arch-node .node-id {
+    font-size: 11px;
+    color: #667eea;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .arch-node .node-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #ddd;
+    margin-bottom: 4px;
+  }
+  .arch-node .node-tech {
+    font-size: 10px;
+    color: #777;
+  }
+
+  /* Modules */
+  .module-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+  }
+  .module-card {
+    background: rgba(255,255,255,0.05);
+    border-radius: 10px;
+    padding: 18px;
+    border-left: 3px solid;
+    transition: transform 0.2s;
+  }
+  .module-card:hover { transform: translateX(4px); }
+  .module-card h4 { font-size: 14px; margin-bottom: 6px; color: #ccc; }
+  .module-card p { font-size: 12px; color: #888; line-height: 1.6; }
+
+  /* MVP */
+  .mvp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+  }
+  .mvp-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+  }
+  .mvp-item .check {
+    color: #4ade80;
+    font-size: 16px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .mvp-item .mvp-text { font-size: 13px; color: #bbb; line-height: 1.5; }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    margin-top: 40px;
+    color: #555;
+    font-size: 12px;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .flow-container { flex-direction: column; }
+    .flow-arrow { transform: rotate(90deg); }
+    .header .logo { font-size: 32px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="logo">InsightAgent</div>
+    <div class="subtitle">AI 驱动的商业分析协作工具</div>
+    <div class="tagline">
+      帮助商业/经营分析师用 AI 重构分析工作流——<br>
+      把重复性的清洗、标准化分析、报告撰写自动化，<br>
+      将从数据到初稿结论的时间从半天压缩至 15 分钟。
+    </div>
+  </div>
+
+  <!-- 核心价值 -->
+  <div class="section">
+    <div class="section-title">
+      <span class="icon" style="background:rgba(102,126,234,0.2);">🎯</span>
+      核心价值主张
+    </div>
+    <div class="value-grid">
+      <div class="value-card">
+        <div class="card-icon">🔍</div>
+        <h4>问题驱动</h4>
+        <p>先定义业务问题再上传数据，AI 针对性分析，而非盲目探索</p>
+      </div>
+      <div class="value-card">
+        <div class="card-icon">🤝</div>
+        <h4>人机协作</h4>
+        <p>AI 提议 → 人确认 → 再执行，每个关键步骤消除黑箱</p>
+      </div>
+      <div class="value-card">
+        <div class="card-icon">📊</div>
+        <h4>透明可信</h4>
+        <p>清洗日志逐条展示，结论附置信度标注，分析师知道 AI 做了什么</p>
+      </div>
+      <div class="value-card">
+        <div class="card-icon">📝</div>
+        <h4>动态报告</h4>
+        <p>支持追问，结论追加进报告，最终导出包含完整分析过程的 PDF</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 用户流程 -->
+  <div class="section">
+    <div class="section-title">
+      <span class="icon" style="background:rgba(118,75,162,0.2);">🔄</span>
+      完整用户流程（Step 0 → Step 8）
+    </div>
+    <div class="flow-container">
+      <div class="flow-step">
+        <div class="step-num">Step 0</div>
+        <div class="step-name">问题澄清</div>
+        <div class="step-desc">对话式引导<br>2-3个问题</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="step-num">Step 1</div>
+        <div class="step-name">确认目标</div>
+        <div class="step-desc">分析目标<br>+ 数据清单</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="step-num">Step 2</div>
+        <div class="step-name">上传数据</div>
+        <div class="step-desc">CSV<br>多文件支持</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="step-num">Step 3</div>
+        <div class="step-name">数据诊断</div>
+        <div class="step-desc">口径确认<br>字段可编辑</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="step-num">Step 4</div>
+        <div class="step-name">清洗计划</div>
+        <div class="step-desc">预览 +<br>确认执行</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="step-num">Step 5</div>
+        <div class="step-name">针对性分析</div>
+        <div class="step-desc">只跑相关<br>分析模块</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="step-num">Step 6</div>
+        <div class="step-name">报告输出</div>
+        <div class="step-desc">含置信度<br>标注</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="step-num">Step 7</div>
+        <div class="step-name">追问对话</div>
+        <div class="step-desc">补传数据<br>结论追加</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="step-num">Step 8</div>
+        <div class="step-name">导出PDF</div>
+        <div class="step-desc">完整分析<br>过程</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 技术架构 -->
+  <div class="section">
+    <div class="section-title">
+      <span class="icon" style="background:rgba(240,147,251,0.2);">⚙️</span>
+      技术架构
+    </div>
+    <div class="arch-container">
+      <div class="arch-orch">LangGraph Orchestrator（编排引擎）</div>
+      <div class="arch-arrow-down">▼</div>
+      <div class="arch-nodes">
+        <div class="arch-node">
+          <div class="node-id">Node 1</div>
+          <div class="node-name">Data Diagnosis</div>
+          <div class="node-tech">LLM + Pandas</div>
+        </div>
+        <div class="arch-node">
+          <div class="node-id">Node 2</div>
+          <div class="node-name">Human Confirmation</div>
+          <div class="node-tech">SSE 暂停等待</div>
+        </div>
+        <div class="arch-node">
+          <div class="node-id">Node 3</div>
+          <div class="node-name">Transform Engine</div>
+          <div class="node-tech">JSON Plan → 固定函数</div>
+        </div>
+        <div class="arch-node">
+          <div class="node-id">Node 4</div>
+          <div class="node-name">Analysis Engine</div>
+          <div class="node-tech">模块化分析</div>
+        </div>
+        <div class="arch-node">
+          <div class="node-id">Node 5</div>
+          <div class="node-name">Narrative + PDF</div>
+          <div class="node-tech">HTML → WeasyPrint</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 分析模块 -->
+  <div class="section">
+    <div class="section-title">
+      <span class="icon" style="background:rgba(74,222,128,0.2);">🧩</span>
+      Node 4：模块化分析引擎
+    </div>
+    <div class="module-grid">
+      <div class="module-card" style="border-left-color:#667eea;">
+        <h4>📈 TrendInsightModule</h4>
+        <p>趋势洞察分析<br>时间序列趋势识别与异常检测</p>
+      </div>
+      <div class="module-card" style="border-left-color:#764ba2;">
+        <h4>⚖️ ComparisonModule</h4>
+        <p>对比分析<br>多维度对比与差异显著性检验</p>
+      </div>
+      <div class="module-card" style="border-left-color:#f093fb;">
+        <h4>👥 SegmentationModule</h4>
+        <p>用户分群分析<br>行为聚类与人群画像</p>
+      </div>
+      <div class="module-card" style="border-left-color:#f5576c;">
+        <h4>🔬 AttributionModule</h4>
+        <p>归因分析<br>预留 empirical-agent 统计接口<br>OLS / DID 等计量方法</p>
+      </div>
+      <div class="module-card" style="border-left-color:#4ade80;">
+        <h4>🔮 PredictionModule</h4>
+        <p>预测模型（后期）<br>机器学习预测与场景模拟</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 设计原则 -->
+  <div class="section">
+    <div class="section-title">
+      <span class="icon" style="background:rgba(250,204,21,0.2);">💡</span>
+      五大设计原则
+    </div>
+    <div class="value-grid">
+      <div class="value-card">
+        <div class="card-icon">1️⃣</div>
+        <h4>问题驱动，不是数据驱动</h4>
+        <p>先定义业务问题，再上传数据，AI 针对性分析</p>
+      </div>
+      <div class="value-card">
+        <div class="card-icon">2️⃣</div>
+        <h4>AI 提议，人确认，再执行</h4>
+        <p>每个关键步骤给用户"看到+决定"的机会</p>
+      </div>
+      <div class="value-card">
+        <div class="card-icon">3️⃣</div>
+        <h4>透明可信</h4>
+        <p>清洗日志逐条展示，结论附置信度</p>
+      </div>
+      <div class="value-card">
+        <div class="card-icon">4️⃣</div>
+        <h4>报告是动态文档</h4>
+        <p>支持追问，结论追加进报告</p>
+      </div>
+      <div class="value-card">
+        <div class="card-icon">5️⃣</div>
+        <h4>分析师是主角，AI 是工具</h4>
+        <p>产品不替代分析判断，只加速执行过程</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- MVP -->
+  <div class="section">
+    <div class="section-title">
+      <span class="icon" style="background:rgba(74,222,128,0.2);">🚀</span>
+      MVP 范围 & 路线图
+    </div>
+    <div class="mvp-grid">
+      <div class="mvp-item"><span class="check">✅</span><span class="mvp-text"><strong>Step 0-6 完整流程</strong><br>从问题澄清到报告输出</span></div>
+      <div class="mvp-item"><span class="check">✅</span><span class="mvp-text"><strong>单文件上传（CSV）</strong><br>支持钱包信贷场景模拟数据</span></div>
+      <div class="mvp-item"><span class="check">✅</span><span class="mvp-text"><strong>追问对话</strong><br>基于现有数据的深度追问</span></div>
+      <div class="mvp-item"><span class="check">✅</span><span class="mvp-text"><strong>置信度标注</strong><br>样本量/空值率/分析方法三维评估</span></div>
+      <div class="mvp-item"><span class="check">✅</span><span class="mvp-text"><strong>PDF 导出</strong><br>包含完整分析过程的报告</span></div>
+      <div class="mvp-item"><span class="check">🔜</span><span class="mvp-text"><strong>多文件上传 + 自动表关联</strong><br>MVP 后第一优先级</span></div>
+      <div class="mvp-item"><span class="check">🔜</span><span class="mvp-text"><strong>补传新数据源</strong><br>追问时补充新数据继续分析</span></div>
+      <div class="mvp-item"><span class="check">📋</span><span class="mvp-text"><strong>后期：模板沉淀 / 数据库直连 / 团队协作</strong></span></div>
+    </div>
+  </div>
+
+  <!-- 差异化 -->
+  <div class="section">
+    <div class="section-title">
+      <span class="icon" style="background:rgba(102,126,234,0.2);">🏆</span>
+      差异化竞争力
+    </div>
+    <div class="value-grid">
+      <div class="value-card">
+        <div class="card-icon">🎯</div>
+        <h4>问题前置（Step 0）</h4>
+        <p>市面产品普遍从数据出发，不问业务问题。InsightAgent 先澄清问题再分析</p>
+      </div>
+      <div class="value-card">
+        <div class="card-icon">🔒</div>
+        <h4>确定性执行</h4>
+        <p>固定函数替代 LLM 生成代码，可靠性更高，不产生幻觉代码</p>
+      </div>
+      <div class="value-card">
+        <div class="card-icon">🔎</div>
+        <h4>口径诊断透明化</h4>
+        <p>主动发现字段问题并让用户确认，不黑箱处理数据质量问题</p>
+      </div>
+      <div class="value-card">
+        <div class="card-icon">📊</div>
+        <h4>置信度标注</h4>
+        <p>几乎没有产品做这一点——让分析师知道结论可不可信</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    InsightAgent v0.3 · 开发中（Node1-3 已完成，Node4 进行中）· 部署目标：腾讯云
+  </div>
+
+</div>
+</body>
+</html>

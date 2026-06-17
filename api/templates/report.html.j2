@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>业务分析报告</title>
+<style>
+  @page {
+    size: A4;
+    margin: 2cm;
+  }
+  body {
+    font-family: "Noto Sans CJK SC", "Noto Sans SC", "WenQuanYi Zen Hei",
+                  "Microsoft YaHei", "SimHei", "Droid Sans Fallback", sans-serif;
+    color: #1f2329;
+    line-height: 1.6;
+    font-size: 11pt;
+  }
+  h1 {
+    font-size: 20pt;
+    border-bottom: 2px solid #5470c6;
+    padding-bottom: 0.3em;
+  }
+  h2 {
+    font-size: 14pt;
+    margin-top: 1.6em;
+    color: #2f3542;
+  }
+  .module {
+    page-break-inside: avoid;
+    margin-bottom: 1.5em;
+  }
+  .confidence {
+    display: inline-block;
+    padding: 0.1em 0.6em;
+    border-radius: 0.3em;
+    font-size: 9pt;
+    font-weight: bold;
+    color: #fff;
+    margin-left: 0.5em;
+  }
+  .confidence-高 { background-color: #67c23a; }
+  .confidence-中 { background-color: #e6a23c; }
+  .confidence-低 { background-color: #f56c6c; }
+  .confidence-reasons {
+    font-size: 9pt;
+    color: #909399;
+    margin: 0.2em 0 0.8em 0;
+  }
+  .narrative p {
+    margin: 0.4em 0;
+  }
+  .narrative .label {
+    font-weight: bold;
+    margin-right: 0.4em;
+  }
+  .chart-placeholder {
+    border: 1px dashed #c0c4cc;
+    border-radius: 0.3em;
+    padding: 0.8em;
+    margin: 0.6em 0;
+    background-color: #f7f8fa;
+  }
+  .chart-placeholder .chart-title {
+    font-weight: bold;
+    margin-bottom: 0.4em;
+  }
+  .chart-placeholder pre {
+    font-size: 8pt;
+    color: #606266;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0;
+  }
+</style>
+</head>
+<body>
+  <h1>业务分析报告</h1>
+
+  {% for module in modules %}
+  <div class="module">
+    <h2>
+      {{ module.category }} · {{ module.name }}
+      <span class="confidence confidence-{{ module.confidence.level }}">置信度：{{ module.confidence.level }}</span>
+    </h2>
+    <ul class="confidence-reasons">
+      {% for reason in module.confidence.reasons %}
+      <li>{{ reason }}</li>
+      {% endfor %}
+    </ul>
+
+    {% if module.chart_spec %}
+    <div class="chart-placeholder">
+      <div class="chart-title">图表：{{ module.chart_spec.title.text }}（ECharts渲染待接入，见 docs/ARCHITECTURE.md 第7节）</div>
+      <pre>{{ module.chart_spec | tojson }}</pre>
+    </div>
+    {% endif %}
+
+    <div class="narrative">
+      <p><span class="label">结论：</span>{{ module.narrative.conclusion }}</p>
+      <p><span class="label">数据支撑：</span>{{ module.narrative.data_support }}</p>
+      <p><span class="label">运营建议：</span>{{ module.narrative.recommendation }}</p>
+    </div>
+  </div>
+  {% endfor %}
+</body>
+</html>
