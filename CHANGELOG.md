@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-06-17（续2）
+
+### 部署脚本 + 本次部署
+
+- 新增 `scripts/deploy.sh`：`git archive HEAD` 通过 SSH 直接打包传到腾讯云服务器解压
+  （服务器侧 `git pull` GitHub HTTPS 经常超时，疑似GFW间歇性干扰，改用此方式绕开
+  服务器出网依赖），再远程 `pip install` + `pnpm install && pnpm build` +
+  `pm2 restart insight-api insight-web` + 健康检查
+- 用该脚本完成 Join 方案确认 bug 修复的实际部署，`http://175.178.91.42:3001` 验证
+  前端 200，后端 `/health` 本地 curl 200 OK
+
 ## 2026-06-17（续）
 
 ### Node2 Join 方案确认 bug 修复
