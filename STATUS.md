@@ -120,6 +120,14 @@
 
 - （无，等待用户确认下一步）
 
+## 最近完成（2026-06-17 续3，自动化QA Loop）
+
+- [x] Playwright自动化QA Loop（`test_output/qa_loop.js`）跑通5表Join场景全流程
+      Path A-F，发现并修复4个bug（详见CHANGELOG.md）：多表上传错误纵向拼接致诊断
+      错位、Step0澄清渲染丢失、join后维度属性被误sum累加致结论失真（含一个独立的
+      qcut NaN分组潜伏bug）、口径确认时间线状态卡死。连续2轮全部Path pass后收尾，
+      已部署验证（`bash scripts/deploy.sh`）。报告质量人工抽查4/4维度合格。
+
 ## 最近完成（2026-06-17 续）
 
 - [x] 部署脚本 `scripts/deploy.sh`（2026-06-17）：`git archive` 经 SSH 直传服务器解压

@@ -1,0 +1,195 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="utf-8">
+<title>业务分析报告</title>
+<style>
+  @page {
+    size: A4;
+    margin: 2cm;
+  }
+  body {
+    font-family: "Noto Sans CJK SC", "Noto Sans SC", "WenQuanYi Zen Hei",
+                  "Microsoft YaHei", "SimHei", "Droid Sans Fallback", sans-serif;
+    color: #1f2329;
+    line-height: 1.6;
+    font-size: 11pt;
+  }
+  h1 {
+    font-size: 20pt;
+    border-bottom: 2px solid #5470c6;
+    padding-bottom: 0.3em;
+  }
+  h2 {
+    font-size: 14pt;
+    margin-top: 1.6em;
+    color: #2f3542;
+  }
+  .module {
+    page-break-inside: avoid;
+    margin-bottom: 1.5em;
+  }
+  .confidence {
+    display: inline-block;
+    padding: 0.1em 0.6em;
+    border-radius: 0.3em;
+    font-size: 9pt;
+    font-weight: bold;
+    color: #fff;
+    margin-left: 0.5em;
+  }
+  .confidence-高 { background-color: #67c23a; }
+  .confidence-中 { background-color: #e6a23c; }
+  .confidence-低 { background-color: #f56c6c; }
+  .confidence-reasons {
+    font-size: 9pt;
+    color: #909399;
+    margin: 0.2em 0 0.8em 0;
+  }
+  .narrative p {
+    margin: 0.4em 0;
+  }
+  .narrative .label {
+    font-weight: bold;
+    margin-right: 0.4em;
+  }
+  .chart-placeholder {
+    border: 1px dashed #c0c4cc;
+    border-radius: 0.3em;
+    padding: 0.8em;
+    margin: 0.6em 0;
+    background-color: #f7f8fa;
+  }
+  .chart-placeholder .chart-title {
+    font-weight: bold;
+    margin-bottom: 0.4em;
+  }
+  .chart-placeholder pre {
+    font-size: 8pt;
+    color: #606266;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0;
+  }
+</style>
+</head>
+<body>
+  <h1>业务分析报告</h1>
+
+  
+  <div class="module">
+    <h2>
+      趋势/时序 · trend_insight
+      <span class="confidence confidence-中">置信度：中</span>
+    </h2>
+    <ul class="confidence-reasons">
+      
+      <li>样本量 16237 行（高）</li>
+      
+      <li>相关字段平均空值率 8.8%（中）</li>
+      
+      <li>分析方法：趋势/时序（高）</li>
+      
+    </ul>
+
+    
+    <div class="chart-placeholder">
+      <div class="chart-title">图表：credit_score 均值趋势（D）（ECharts渲染待接入，见 docs/ARCHITECTURE.md 第7节）</div>
+      <pre>{"color": ["#5470c6", "#91cc75", "#fac858", "#ee6666", "#73c0de", "#3ba272"], "legend": {}, "series": [{"data": [704.0084, 703.4136, 699.5159, 697.6558, 698.247, 701.2723, 692.9727, 697.1145, 691.8891, 699.4283, 696.6981, 703.2304, 697.5859, 696.847, 707.0703, 699.6577, 707.39, 698.4916, 706.8446, 693.1878, 706.1118, 701.6183, 705.3012, 695.9104, 708.8478, 697.6178, 699.6579, 700.1328, 701.8879, 698.3425], "markPoint": {}, "name": "credit_score", "type": "line"}], "title": {"text": "credit_score \u5747\u503c\u8d8b\u52bf\uff08D\uff09"}, "tooltip": {"trigger": "axis"}, "xAxis": {"data": ["2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04", "2026-04-05", "2026-04-06", "2026-04-07", "2026-04-08", "2026-04-09", "2026-04-10", "2026-04-11", "2026-04-12", "2026-04-13", "2026-04-14", "2026-04-15", "2026-04-16", "2026-04-17", "2026-04-18", "2026-04-19", "2026-04-20", "2026-04-21", "2026-04-22", "2026-04-23", "2026-04-24", "2026-04-25", "2026-04-26", "2026-04-27", "2026-04-28", "2026-04-29", "2026-04-30"], "type": "category"}, "yAxis": {"type": "value"}}</pre>
+    </div>
+    
+
+    <div class="narrative">
+      <p><span class="label">结论：</span>4月信用评分均值整体保持平稳，无明显上升或下降趋势。</p>
+      <p><span class="label">数据支撑：</span>4月1日平均分704.0，4月30日为698.3，全月仅下降约0.8%，每日分值在691.9至708.8之间波动，无明显异常点。</p>
+      <p><span class="label">运营建议：</span>维持现有信用管理策略，可针对评分偏低日期（如4月9日的691.9）开展针对性干预，如推送临时额度调整或信用教育内容。</p>
+    </div>
+  </div>
+  
+  <div class="module">
+    <h2>
+      对比/分组 · comparison
+      <span class="confidence confidence-中">置信度：中</span>
+    </h2>
+    <ul class="confidence-reasons">
+      
+      <li>样本量 16237 行（高）</li>
+      
+      <li>相关字段平均空值率 8.8%（中）</li>
+      
+      <li>分析方法：对比/分组（高）</li>
+      
+    </ul>
+
+    
+    <div class="chart-placeholder">
+      <div class="chart-title">图表：event_name 各分组 credit_score 对比（mean）（ECharts渲染待接入，见 docs/ARCHITECTURE.md 第7节）</div>
+      <pre>{"color": ["#5470c6", "#91cc75", "#fac858", "#ee6666", "#73c0de", "#3ba272"], "legend": {}, "series": [{"data": [702.097, 700.3187, 700.1152, 699.2915], "name": "credit_score", "type": "bar"}], "title": {"text": "event_name \u5404\u5206\u7ec4 credit_score \u5bf9\u6bd4\uff08mean\uff09"}, "tooltip": {"trigger": "axis"}, "xAxis": {"data": ["click_event", "click", "tap", "touch_click"], "type": "category"}, "yAxis": {"type": "value"}}</pre>
+    </div>
+    
+
+    <div class="narrative">
+      <p><span class="label">结论：</span>不同事件名称对应的平均信用评分差异极小，分布均衡。</p>
+      <p><span class="label">数据支撑：</span>click_event平均信用评分702.1，click为700.3，tap为700.1，touch_click为699.3，四分位数占比均在25%左右。</p>
+      <p><span class="label">运营建议：</span>无需对事件名称进行差异化处理，可维持当前活动策略，关注其他可能影响信用评分的变量。</p>
+    </div>
+  </div>
+  
+  <div class="module">
+    <h2>
+      用户/人群 · segmentation
+      <span class="confidence confidence-中">置信度：中</span>
+    </h2>
+    <ul class="confidence-reasons">
+      
+      <li>样本量 16237 行（高）</li>
+      
+      <li>相关字段平均空值率 8.8%（中）</li>
+      
+      <li>分析方法：用户/人群（高）</li>
+      
+    </ul>
+
+    
+    <div class="chart-placeholder">
+      <div class="chart-title">图表：user_id 分群（按 credit_score）（ECharts渲染待接入，见 docs/ARCHITECTURE.md 第7节）</div>
+      <pre>{"color": ["#5470c6", "#91cc75", "#fac858", "#ee6666", "#73c0de", "#3ba272"], "legend": {}, "series": [{"data": [{"name": "\u4f4e", "value": 742}, {"name": "\u4e2d\u4f4e", "value": 741}, {"name": "\u4e2d\u9ad8", "value": 741}, {"name": "\u9ad8", "value": 742}], "name": "\u5b9e\u4f53\u6570\u91cf", "radius": "60%", "type": "pie"}], "title": {"text": "user_id \u5206\u7fa4\uff08\u6309 credit_score\uff09"}, "tooltip": {"trigger": "item"}}</pre>
+    </div>
+    
+
+    <div class="narrative">
+      <p><span class="label">结论：</span>用户信用评分分布均衡，但‘高’分段用户贡献的信用评分总值占比最高，是主要的价值贡献群体。</p>
+      <p><span class="label">数据支撑：</span>全量2966名用户分为四个信用评分段，每段人数均约占25%，分布均衡；但‘高’分段用户（742人）贡献了602276.0的信用评分总值（占29.04%），平均评分811.69，显著高于其他分段。</p>
+      <p><span class="label">运营建议：</span>重点维护‘高’分段用户，通过精准营销或忠诚度计划提升其满意度和留存；同时挖掘‘中低’和‘低’分段用户的潜在价值，推动信用教育或激励计划，帮助其提升评分以转化为更高价值群体。</p>
+    </div>
+  </div>
+  
+  <div class="module">
+    <h2>
+      贡献/驱动因素 · attribution
+      <span class="confidence confidence-低">置信度：低</span>
+    </h2>
+    <ul class="confidence-reasons">
+      
+      <li>样本量 16237 行（高）</li>
+      
+      <li>相关字段平均空值率 39.1%（低）</li>
+      
+      <li>分析方法：贡献/驱动因素（中）</li>
+      
+    </ul>
+
+    
+    <div class="chart-placeholder">
+      <div class="chart-title">图表：credit_score 的驱动因素贡献占比（ECharts渲染待接入，见 docs/ARCHITECTURE.md 第7节）</div>
+      <pre>{"color": ["#5470c6", "#91cc75", "#fac858", "#ee6666", "#73c0de", "#3ba272"], "legend": {}, "series": [{"data": [32.19, 27.32, 22.03, 18.46], "name": "\u8d21\u732e\u5360\u6bd4", "type": "bar"}], "title": {"text": "credit_score \u7684\u9a71\u52a8\u56e0\u7d20\u8d21\u732e\u5360\u6bd4"}, "tooltip": {"trigger": "axis"}, "xAxis": {"data": ["credit_limit_dwd_credit_apply", "interest_rate", "debt_ratio", "credit_limit"], "type": "category"}, "yAxis": {"name": "\u8d21\u732e\u5360\u6bd4(%)", "type": "value"}}</pre>
+    </div>
+    
+
+    <div class="narrative">
+      <p><span class="label">结论：</span>信贷申请额度是影响信用评分的最主要因素，但模型整体解释力很弱，表明信用评分还受许多其他未纳入变量影响。</p>
+      <p><span class="label">数据支撑：</span>模型R²仅为0.0183，说明这四个变量只能解释1.83%的信用评分变化。其中，变量credit_limit_dwd_credit_apply的系数最高（0.0986），贡献占比最大（32.19%），其次为interest_rate（系数0.0837，贡献占比27.32%），debt_ratio（系数-0.0675，贡献占比22.03%），credit_limit（系数-0.0565，贡献占比18.46%）。</p>
+      <p><span class="label">运营建议：</span>建议进一步纳入更多潜在影响因素（如收入、还款历史、信用记录长度等）来提升模型解释力，同时针对信贷申请额度这一关键变量优先进行业务干预，例如设置更合理的额度上限或优化授信策略，以有效提升用户信用评分。</p>
+    </div>
+  </div>
+  
+
+</body></html>

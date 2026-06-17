@@ -4,6 +4,48 @@
 
 ---
 
+## 2026-06-17（续3）
+
+### 自动化QA Loop（Playwright，5表Join场景）发现并修复4个bug
+
+用真实5张钱包业务表（事实表+维度表）跑通 Path A-F 全流程（澄清→上传→诊断→口径确认→
+Join方案确认→清洗预览→分析→报告→追问），Playwright脚本见 `test_output/qa_loop.js`，
+连续2轮全部通过（A-F pass）后收尾，记录于 `test_output/loop_log.md`。
+
+发现并修复：
+
+1. **`api/routes/upload.py` 多表上传错误纵向拼接**（最严重）：原逻辑对任意多文件都做
+   `pd.concat(axis=0)`，对5张列名完全不同的表（事实表+维度表）拼接后产生49列错位宽表，
+   Node1/Node2诊断的几乎所有列空值率被虚假推高到40%~99%，完全掩盖真实口径问题。
+   改为：列名完全一致才纵向合并（同口径多文件场景），否则诊断只读行数最多的表（如
+   `ods_wallet_events`），其余表仍各自存入 `tables/` 供 Join 方案使用。修复后诊断
+   正确检出 `event_name`命名混乱、`material_id`空值率55%等真实问题。
+2. **`pages/index.js` Step0问题澄清渲染丢失**：Join方案确认功能合入（`8fa9e7f`）时
+   误删了 `<ClarificationChat>` 的渲染分支，上传区直接显示，澄清流程不可达。已恢复。
+3. **多表join后维度静态属性被误当事件指标sum累加**：`credit_score`等用户维度属性
+   join进事件表后按用户重复到每条事件行，Trend/Comparison模块默认对数值列做sum，
+   导致"总额"随事件数虚假放大（Segmentation曾产出"平均信用评分5168.38"这种明显
+   超出真实量级300-850的结论）。新增 `api/modules/_metrics.py` 共享启发式，按
+   user_id/apply_id/loan_id分组识别"重复不变"的维度列，优先选事件级列+sum，否则
+   退化为维度列+mean；Segmentation对维度列改用first而非sum。顺带修复一个独立的
+   `pd.qcut` NaN分组导致 `labels[NaN]` 抛 TypeError 的潜伏bug。
+4. **多表场景"口径确认"时间线状态永远卡在等待确认**：`node2_confirmation` 函数体
+   内两个 `interrupt()`，只有两阶段都resume后节点才算返回；多表场景下该节点在
+   `/confirm`接口里卡在Phase2 interrupt上从未返回，`confirmation/confirmed`事件
+   从未发出。已在 `/confirm/join` 节点真正完成时补发该事件。
+
+修复后报告质量人工抽查：结论具体（带百分比/具体数值）、置信度三维度标注齐全、
+建议可执行（如"对debt_ratio超40%的客户提高审批门槛"），且不再含统计学上荒谬的
+结论（trend从虚假的"9.73%下降"纠正为真实的"-0.8%基本平稳"）。
+
+### 已知限制（记录于DEBT.md，本次未修复）
+
+- 分析模块覆盖的是"维度属性的趋势/对比/分群"，尚未覆盖转化漏斗
+  （曝光→申请→授信→放款）各环节的转化率/留存类分析，需要新增按
+  user_id/apply_id/loan_id统计各阶段计数与转化率的逻辑，工作量较大，留作后续迭代。
+
+---
+
 ## 2026-06-17（续2）
 
 ### 部署脚本 + 本次部署
