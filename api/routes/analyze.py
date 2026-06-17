@@ -157,6 +157,12 @@ async def analyze_confirm_join(session_id: str, join_plan: JoinPlanRequest) -> S
             ):
                 if "node2_confirmation" in chunk:
                     confirmed = chunk["node2_confirmation"]
+                    # 多表场景下 node2_confirmation 函数体含两个 interrupt()，只有两阶段都
+                    # 恢复后该节点才算真正完成；此前 Phase1 的 /confirm 接口里节点还卡在
+                    # Phase2 interrupt 上，从未返回，导致前端时间线的"口径确认"永远停在
+                    # waiting_confirmation。这里补发 confirmation/confirmed，与单表场景
+                    # （/confirm 内直接完成）保持一致。
+                    yield _sse("confirmation", "confirmed", confirmed.get("user_confirmations"))
                     yield _sse("join_plan", "confirmed", {
                         "confirmed_join_plan": confirmed.get("confirmed_join_plan"),
                     })
