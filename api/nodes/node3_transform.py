@@ -200,8 +200,24 @@ def op_drop_rows_with_null(df: pd.DataFrame, op: dict) -> pd.DataFrame:
     return df.dropna(subset=columns)
 
 
+# drop_duplicates 是 LLM 自由生成的"补充清洗操作"，没有走用户逐字段确认（不像
+# fillna/drop_rows_with_null 来自confirmed_schema里用户的明确选择）。subset 选了
+# 几个低基数字段组合时，会把事件日志表里大量"看起来相同但实际是独立事件"的行误判
+# 为重复，一次性删掉大半数据且不会报错（曾在QA回归里复现：16237行被去重到84行）。
+# 删除比例超过阈值时跳过该操作，保留原数据，避免静默的灾难性数据丢失。
+MAX_DROP_DUPLICATES_RATIO = 0.5
+
+
 def op_drop_duplicates(df: pd.DataFrame, op: dict) -> pd.DataFrame:
-    return df.drop_duplicates(subset=op.get("subset"))
+    deduped = df.drop_duplicates(subset=op.get("subset"))
+    if len(df) > 0 and len(deduped) < len(df) * (1 - MAX_DROP_DUPLICATES_RATIO):
+        print(
+            f"drop_duplicates: subset={op.get('subset')} 会删除 "
+            f"{len(df) - len(deduped)}/{len(df)} 行（超过{MAX_DROP_DUPLICATES_RATIO:.0%}），"
+            "疑似字段组合误判重复，跳过该操作"
+        )
+        return df
+    return deduped
 
 
 OP_FUNCTIONS = {
