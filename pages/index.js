@@ -321,8 +321,17 @@ export default function Home() {
       </header>
 
       <main style={styles.main}>
+        {/* Step0 问题澄清 */}
+        {!clarificationDone && (
+          <ClarificationChat
+            apiUrl={API_URL}
+            sessionId={clarifySessionId}
+            onComplete={(goal) => { setAnalysisGoal(goal || ""); setClarificationDone(true); }}
+          />
+        )}
+
         {/* 上传区 */}
-        {status === "idle" && (
+        {clarificationDone && status === "idle" && (
           <div className="ia-card">
             <h2 style={styles.sectionTitle}>上传数据</h2>
             <div style={styles.uploadRow}>

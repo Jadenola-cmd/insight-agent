@@ -39,8 +39,16 @@ async def upload_file(
         stem = f.filename.rsplit(".", 1)[0] if "." in f.filename else f.filename
         df.to_csv(tables_dir / f"{stem}.csv", index=False)
 
-    # 多文件按列名纵向合并，存为 raw.csv（向后兼容单表分析流程）
-    merged = pd.concat(dfs, axis=0, ignore_index=True) if len(dfs) > 1 else dfs[0]
+    # 多文件场景：列名完全一致时视为同口径多文件（如分月导出），纵向合并；
+    # 列名不一致时视为多张不同结构的表（事实表/维度表，供 Node2 Join 方案使用），
+    # 此时 Node1/Node2 的字段口径诊断只针对行数最多的表（通常是主事实表），
+    # 不能对所有表的列名做 pd.concat，否则绝大多数列会因表间错位产生虚假高空值率。
+    if len(dfs) > 1 and all(list(df.columns) == list(dfs[0].columns) for df in dfs):
+        merged = pd.concat(dfs, axis=0, ignore_index=True)
+    elif len(dfs) > 1:
+        merged = max(dfs, key=len)
+    else:
+        merged = dfs[0]
     merged.to_csv(raw_data_path(session_id), index=False)
 
     if analysis_goal:
