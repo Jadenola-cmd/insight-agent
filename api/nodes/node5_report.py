@@ -82,6 +82,8 @@ def _generate_narrative(category: str, metrics: dict) -> tuple[dict, bool]:
         "结论：一句话给出本模块最重要的发现；"
         "数据支撑：引用结果中的具体数字说明结论依据；"
         "运营建议：基于结论给出可执行的运营建议。"
+        "涉及多阶段/多环节的比较（如转化率、环比、占比）时，必须严格按数据中给出的比例"
+        "字段大小直接判断，不要凭直觉或粗略印象估算大小关系，避免与数据矛盾的结论。"
     )
     user_prompt = f"""分析模块类别：{category}
 分析结果（JSON）：{json.dumps(metrics, ensure_ascii=False)}
