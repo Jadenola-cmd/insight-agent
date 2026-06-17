@@ -12,13 +12,18 @@ STAGE_KEYWORDS: list[tuple[str, list[str]]] = [
 ]
 
 
-def _find_stage_column(df: pd.DataFrame, keywords: list[str], used: set[str]) -> str | None:
+def _candidate_stage_columns(df: pd.DataFrame, keywords: list[str], used: set[str]) -> list[str]:
+    """按关键词匹配出所有候选列（保留匹配顺序）。多表join时同名列会被加上
+    表名后缀（如 credit_limit_dwd_credit_apply），不同表的同名字段语义可能
+    完全不同（维度表的静态属性 vs 事实表的单次记录），不能只取第一个匹配就用，
+    需要在run()里结合"漏斗必须单调递减"这条业务约束挑出语义正确的那一列。"""
     columns_lower = {str(c).lower(): c for c in df.columns}
+    candidates = []
     for keyword in keywords:
         for lower_name, original_name in columns_lower.items():
-            if keyword in lower_name and original_name not in used:
-                return original_name
-    return None
+            if keyword in lower_name and original_name not in used and original_name not in candidates:
+                candidates.append(original_name)
+    return candidates
 
 
 class FunnelModule(BaseAnalysisModule):
@@ -40,12 +45,26 @@ class FunnelModule(BaseAnalysisModule):
 
         used_columns = {entity_key}
         for stage_name, keywords in STAGE_KEYWORDS:
-            column = _find_stage_column(df, keywords, used_columns)
-            if column is None:
+            prev_count = stages[-1]["count"]
+            candidates = _candidate_stage_columns(df, keywords, used_columns)
+            if not candidates:
                 continue
-            used_columns.add(column)
-            count = int(df.loc[df[column].notna(), entity_key].nunique(dropna=True))
-            stages.append({"name": stage_name, "column": column, "count": count})
+
+            # 漏斗阶段人数必须单调不超过上一阶段（业务约束：必须先完成上一步才能进入下一步）。
+            # 多表join后同名字段会被加后缀区分（如 credit_limit 与 credit_limit_dwd_credit_apply），
+            # 不同表的同名字段语义可能完全不同（事实表"单次记录" vs 维度表"静态属性"，后者几乎对
+            # 所有人都非空，会算出超过上一阶段的人数），按上面约束在候选列里挑出语义正确的那一列；
+            # 都不满足约束时，选人数最接近且不超标的，仍找不到就跳过该阶段，不展示矛盾的数字。
+            best_column, best_count = None, None
+            for column in candidates:
+                used_columns.add(column)
+                count = int(df.loc[df[column].notna(), entity_key].nunique(dropna=True))
+                if count <= prev_count and (best_count is None or count > best_count):
+                    best_column, best_count = column, count
+
+            if best_column is None:
+                continue
+            stages.append({"name": stage_name, "column": best_column, "count": best_count})
 
         return entity_key, stages
 
