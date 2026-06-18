@@ -143,7 +143,7 @@ def _route_after_transform(state: AnalysisState) -> str:
     """problem_card 只在 Minerva 入口（node0_clarification 自循环收敛）写入，
     旧版线性流程该字段始终为 None，据此区分走向。"""
     if state.get("problem_card"):
-        return "node_hypothesis_tree"
+        return "node_hypothesis_init"
     return "node4_analysis"
 
 
@@ -221,16 +221,33 @@ def _route_after_node6(state: AnalysisState) -> str:
     return "node6_followup"
 
 
-def node_hypothesis_tree(state: AnalysisState) -> dict:
-    """阶段二（假设树）：首次进入时 LLM 一次性生成初始树；之后每次 interrupt
-    等待用户下一步动作 {"action": "chat"|"verify"|"conclude", ...}：
-    - chat：message 经 LLM 转为增量操作（可能为空，纯聊天不调整树），留在本节点
-    - verify：携带 node_id + module（registry 模块名），路由去 node_verification
-    - conclude：路由去 node_conclusion 生成综合结论
+def node_hypothesis_init(state: AnalysisState) -> dict:
+    """假设树懒初始化，必须作为独立节点跑在 node_hypothesis_tree 的 interrupt() 之前。
+
+    LangGraph 恢复 interrupt 时会把所在节点函数从头重新执行；若初始树生成放在
+    node_hypothesis_tree 内部 interrupt() 之前，由于 interrupt() 暂停时这次生成
+    从未通过 return 提交到 checkpoint，第一次 resume 时会重新整体生成一棵内容
+    完全不同的新树，而用户实际看到/选择验证的是旧树的某个节点 —— 二者 id 凑巧都是
+    "1.1" 这类格式，于是验证结果被错配到新树同id但语义完全不同的节点上
+    （2026-06-18 实测复现）。本节点用普通 return 提交生成结果，确保
+    node_hypothesis_tree 重跑时读到的 state.hypothesis_tree 已经非空。
     """
     tree = state.get("hypothesis_tree") or []
     if not tree:
         tree = apply_ops(tree, generate_initial_ops(state.get("problem_card") or {}))
+    return {"current_node": "node_hypothesis_init", "hypothesis_tree": tree}
+
+
+def node_hypothesis_tree(state: AnalysisState) -> dict:
+    """阶段二（假设树）：每次 interrupt 等待用户下一步动作
+    {"action": "chat"|"verify"|"conclude", ...}：
+    - chat：message 经 LLM 转为增量操作（可能为空，纯聊天不调整树），留在本节点
+    - verify：携带 node_id + module（registry 模块名），路由去 node_verification
+    - conclude：路由去 node_conclusion 生成综合结论
+
+    初始树生成已移至 node_hypothesis_init，本节点进入时 tree 必须已非空。
+    """
+    tree = state.get("hypothesis_tree") or []
 
     decision = interrupt({
         "type": "hypothesis_tree",
@@ -330,6 +347,7 @@ def _build_graph():
     builder.add_node("node4_analysis", node4_analysis)
     builder.add_node("node5_report", node5_report)
     builder.add_node("node6_followup", node6_followup)
+    builder.add_node("node_hypothesis_init", node_hypothesis_init)
     builder.add_node("node_hypothesis_tree", node_hypothesis_tree)
     builder.add_node("node_verification", node_verification)
     builder.add_node("node_conclusion", node_conclusion)
@@ -348,6 +366,7 @@ def _build_graph():
     builder.add_edge("node5_report", "node6_followup")
     # node6 self-loop：每次处理一条消息后返回，由条件边决定继续或退出
     builder.add_conditional_edges("node6_followup", _route_after_node6)
+    builder.add_edge("node_hypothesis_init", "node_hypothesis_tree")
     # 假设树循环：chat留在原节点，verify/conclude路由出去，verification完成后绕回
     builder.add_conditional_edges("node_hypothesis_tree", _route_after_hypothesis)
     builder.add_edge("node_verification", "node_hypothesis_tree")
