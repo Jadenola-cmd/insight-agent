@@ -51,6 +51,7 @@ def _initial_state(session_id: str) -> dict:
         "clarification_round": 0,
         "verifying_node_id": None,
         "verifying_module": None,
+        "last_verification": None,
     }
 
 

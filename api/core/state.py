@@ -42,3 +42,4 @@ class AnalysisState(TypedDict):
     clarification_round: int
     verifying_node_id: str | None  # node_hypothesis_tree -> node_verification 传递目标假设id
     verifying_module: str | None   # 用户/前端指定的验证用分析模块名（registry.get_module）
+    last_verification: dict | None  # node_verification 写入，供前端右侧数据面板渲染图表/置信度

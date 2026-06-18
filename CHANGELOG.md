@@ -4,6 +4,198 @@
 
 ---
 
+## 2026-06-18 续15（Minerva重构 Step5，增量上传支持）
+
+### 新增 `api/nodes/data_append.py` + `api/routes/data_append.py`
+
+假设验证阶段中途发现缺字段时，支持追加上传一个文件并合并进当前 session 的
+已清洗数据，不打断 `node_hypothesis_tree` 的 interrupt（不经过 LangGraph
+resume，只读写 `cleaned_data_path`/`merged_data_path` 指向的文件）：
+
+- `generate_append_plan`：LLM 提议新文件与已有数据的合并 key（on/how），
+  不可用时降级为同名列匹配，prompt 风格与 `node2_confirmation._generate_join_plan`
+  一致。
+- `POST /api/analyze/{session_id}/data/append/preview`（multipart file）：
+  保存新文件、生成合并方案，暂存进 `session_state.json` 的 `pending_append`。
+- `POST /api/analyze/{session_id}/data/append/confirm`（`{approved, plan?}`）：
+  执行 `pd.merge`，**同时覆盖** `cleaned_data_path` 与（若存在）
+  `merged_data_path`，避免要判断当前 session 实际生效的是哪个路径。
+  `approved=false` 取消，清空 `pending_append`。
+- `api/main.py` 注册新路由 `data_append.router`。
+- 手动 curl 全链路验证通过：单表场景跑通 Node1-6 后追加上传含 `channel` 列的
+  新文件，LLM 正确识别 `user_id` 为 join key，合并后 `cleaned.parquet` 正确
+  新增 `channel` 列；cancel 路径与"未 preview 直接 confirm"的 404 保护均验证通过。
+
+---
+
+## 2026-06-18 续16（Minerva重构 Step6，前端三栏对话界面）
+
+### 新增 `pages/minerva.js`（新路由，不改动 `pages/index.js` 旧线性流程）
+
+完整三栏闭环：左侧分析地图（问题定义/假设树/综合结论三阶段状态 + 假设树节点
+列表+验证按钮）、中间对话区（问题澄清聊天 + 各 interrupt 对应表单/上传区，
+按需嵌入复用 `ConfirmationForm`/`JoinPlanForm`/`TransformPreview` 三个既有组件，
+未重写）、右侧数据结果面板（最近一次假设验证的图表+置信度+三段式叙事）。
+全流程接真实后端接口，无 mock 数据：
+
+- 入口用 `GET /api/analyze/{id}/stream` 拿首个 interrupt；之后统一走
+  `POST /api/analyze/{id}/resume`（`api/routes/analyze.py` 已有的通用 resume
+  入口）推进问题澄清自循环 / `node_awaiting_data` / 假设树 chat|verify|conclude
+  三个 action，按 interrupt payload 的特征字段（`type`/`diagnosis`/`join_plan`/
+  `transform_plan`）区分阶段。
+- 后端配合新增：`api/core/state.py` 新增 `last_verification` 字段；
+  `api/core/graph.py` 的 `node_verification` 写入
+  `{module, category, chart(VisualizationModule转换), confidence, narrative}`，
+  `node_hypothesis_tree`/`node_awaiting_data` 的 interrupt payload 补充
+  `last_verification`/`problem_card`，供右侧面板和左侧地图渲染。
+- 修复一个 LangGraph 调用细节：`Command(resume=None)` 会被 LangGraph 当作
+  "未提供resume值"抛 `EmptyInputError`，`node_awaiting_data`/`node6_followup`
+  这类"resume 值本身不使用"的 interrupt，前端必须传任意真值（如 `true`），
+  不能传 `null`。
+- Playwright 全链路验证通过（`test_output/minerva_e2e.js`）：问题澄清对话
+  （3轮收敛）→ 上传CSV → 字段口径确认 → 清洗计划确认 → 假设树生成 → 选择
+  假设+模块验证（图表+置信度正确渲染）→ 生成综合结论（HTML正确渲染），
+  全程无 console error，截图见 `test_output/minerva_final.png`。
+
+---
+
+## 2026-06-18（Minerva重构 Step1，假设树数据结构设计）
+
+### 新增 ProblemCard / HypothesisNode / HypothesisTreeOp 类型定义
+
+`api/core/schema.py` 新增：
+
+- `ProblemCard`：阶段一"问题陈述卡片"输出（question/baseline/business_meaning/
+  analysis_goal），对应`Minerva_PRD_v1.0.md`第三节。
+- `HypothesisNode`：假设树单节点（id/parent/group/label/priority/status/
+  verification_summary），`group`是叙述性分组名（如"需求侧"）不是节点id，
+  根分组节点`parent`为`None`。`status`枚举
+  `pending|verifying|verified|rejected|partial`对应PRD的待验证/验证中/已验证/
+  已排除/部分验证。
+- `HypothesisTreeOp`：假设树增量更新操作（`add_node`/`update_status`/
+  `update_summary`/`merge_node`/`remove_node`），LLM每轮只允许输出这组操作，
+  禁止直接吐自由文本或整棵树重写，应用逻辑留给Step2/3的固定函数实现。
+
+`api/core/state.py`新增`stage`/`problem_card`/`hypothesis_tree`三个TypedDict
+字段（⚠️ AnalysisState未声明的key会被LangGraph静默丢弃，本次已按
+[[project_langgraph_state_gotcha]]提前声明，避免重演Join方案那次的bug）。
+state内仍按现有风格存dict/list，详细结构在schema.py。
+
+本次只做数据结构设计，未接入graph.py/node代码，下一步Step2路由骨架改造。
+
+---
+
+## 2026-06-18（续，Minerva重构 Step2+3+4，路由骨架+Stage1/2/3 Node骨架+上传时机迁移）
+
+### graph.py 改为路由型：旧版线性流程与Minerva对话式流程共用一张图
+
+核心思路：用"raw_data_path对应文件是否已存在"和"problem_card是否已写入"两个
+信号区分旧版/Minerva入口，不新建并行图，同一张图按入口分流，旧版完全不受影响
+（已用独立冒烟脚本回归验证，过程见下）。
+
+- `api/core/graph.py`：
+  - `node0_clarification` 改为双模式：raw.csv已存在（旧版，upload先于/stream）
+    纯透传直入node1；不存在时（Minerva）自循环`interrupt()`等用户消息，调用
+    `run_clarification`推进对话，收敛后写`problem_card`，`stage`切到
+    `awaiting_data`。
+  - 新增`node_awaiting_data`：阶段一结束、阶段二开始前的等待点，`interrupt()`
+    等前端调用`POST /api/upload`（带session_id）写入数据后再恢复。
+  - `node3_transform`之后新增条件边`_route_after_transform`：`problem_card`
+    非空（Minerva）转`node_hypothesis_tree`，否则（旧版）走原`node4_analysis`。
+    Node1/2/3本身代码未改一行，验证了"原样复用"。
+  - 新增`node_hypothesis_tree`/`node_verification`/`node_conclusion`三个节点
+    实现PRD阶段二/三：首次进入LLM一次性生成初始假设树（`hypothesis_tree.py`的
+    `generate_initial_ops`+`apply_ops`），`interrupt()`等用户action
+    （chat/verify/conclude）；verify时复用`registry.get_module(name)`+
+    `node5_report.py`的`_compute_confidence`/`_generate_narrative`在全量清洗
+    数据上跑一次模块，按置信度等级判定verified/partial写回树；conclude时
+    生成综合结论写入`report_html`（复用现有`/api/report/{id}/html`展示）。
+- `api/nodes/hypothesis_tree.py`（新建）：假设树固定操作函数
+  `apply_ops`（add_node/update_status/update_summary/merge_node/remove_node，
+  LLM不允许直接吐整棵树）+ 三个LLM增量生成函数（初始树/对话增量/综合结论），
+  均有LLM不可用时的降级（占位节点/空操作/规则拼接的结论文本），不阻断流程。
+- `api/nodes/node0_clarification.py`：`run_clarification`输出新增
+  `question`/`baseline`/`business_meaning`三个字段（对应PRD"问题陈述卡片"），
+  向后兼容——`api/routes/v03.py`旧版只读`analysis_goal`/`done`等字段，不受影响。
+- `api/routes/analyze.py`：
+  - `_initial_state()`补充Step1新增字段的默认值（`stage`/`problem_card`/
+    `hypothesis_tree`/`clarification_history`/`clarification_round`/
+    `verifying_node_id`/`verifying_module`）。
+  - 删除`/stream`里"raw.csv不存在就报错"的前置guard——Minerva入口本来就要在
+    上传前启动图；旧版因为upload已先发生，该guard本来就是恒真，删除不影响旧版。
+  - 新增通用`POST /api/analyze/{session_id}/resume`（body `{"value": ...}`），
+    服务Minerva新增的三个interrupt点；node2/node3_preview/node6仍用各自专属
+    确认接口，未迁移。⚠️ LangGraph的`Command(resume=None)`会被当成"空输入"报
+    `EmptyInputError`，`node_awaiting_data`这类无需携带数据的interrupt，resume
+    必须传`true`等非空值，不能传`null`。
+- `api/routes/upload.py`：`/api/upload`新增可选`session_id` Form字段，传入时
+  复用该session目录而不是新建（Minerva流程问题定义阶段已占用session_id，
+  上传时要写入同一个session）。
+- `api/core/state.py`：补充`clarification_history`/`clarification_round`/
+  `verifying_node_id`/`verifying_module`四个字段（Step1只声明了
+  `stage`/`problem_card`/`hypothesis_tree`，实现阶段发现还需要这四个，属于正常
+  的设计细化）。
+
+### 验证
+
+两条独立冒烟脚本（直接驱动graph对象，不经HTTP，验证后已删除）：
+- Minerva全链路：问题定义3轮对话收敛 -> 上传数据 -> node1诊断/node2口径确认/
+  node3清洗预览确认（全部复用现有节点不变）-> 假设树LLM生成11个分组假设节点 ->
+  对1.1假设跑comparison模块验证（置信度判定为verified，结果写回树节点）->
+  conclude生成综合结论HTML。全部用真实DashScope LLM调用，未降级。
+- 旧版回归：raw.csv预先写好直接调`_initial_state`+`graph.stream`，确认
+  `node0_clarification`不进入interrupt直接到node2诊断确认，跑完整条
+  Node1-5+followup_ready，`stage`/`problem_card`全程保持初始空值，证明本次
+  改造对旧版完全透明。
+
+本批未做：Step5（增量上传支持）、Step6（前端三栏对话界面，需整体重做现有
+step-based组件），按计划延后到下次会话。
+
+---
+
+## 2026-06-17（续5，清洗计划可编辑+拒绝回退，修复单表分析读取merged_data_path的bug）
+
+### Node3清洗计划预览改为可编辑，拒绝不再终止会话
+
+此前确认流程只有"往下走"一条路：`TransformPreview.js`只有确认/取消两个按钮，取消
+直接走`_route_after_preview`到`END`，整个LangGraph会话结束，用户只能重新上传文件
+（已记录在DEBT.md）。本次改造：
+
+- `TransformPreview.js`：每条清洗操作加删除按钮；`fillna`填充值/`cast_type`目标
+  类型/`unit_convert`换算系数支持inline编辑；提交时把编辑后的plan回传，不再是
+  纯只读展示
+- `node3_preview`（`api/core/graph.py`）：interrupt的resume约定从`bool`改为
+  `{"action": "confirm"|"reject", "plan": [...]}`；`confirm`时用前端回传的
+  （可能编辑过的）plan，`reject`时通过`_route_after_preview`路由回
+  `node2_confirmation`重新触发口径确认interrupt，而不是走`END`
+- `run_transform`（`api/nodes/node3_transform.py`）新增`final_plan`参数：给定时
+  直接按此plan执行（仍经`_order_plan`重新排序+校验op类型，不跳过固定函数集合的
+  约束），不再重新调用LLM生成补充操作，确保"预览看到的"与"实际执行的"是同一份
+  plan（修复了此前preview展示的plan和confirm后实际执行的plan可能因LLM非确定性
+  而不一致的潜在问题）
+- `ConfirmationForm.js`新增`initialSchema`prop：退回到口径确认时沿用用户上一轮
+  的编辑结果（重命名/排除字段/缺失值策略），而不是重新从诊断结果生成默认值
+- `api/routes/v03.py`的`/transform/confirm`：`approved=false`时不再返回
+  `transform/cancelled`后挂起，而是继续推进图执行到下一个interrupt（即
+  node2_confirmation的Phase1），推送`confirmation/waiting_confirmation`事件，
+  `pages/index.js`据此重新展示`ConfirmationForm`并清理本轮已失效的
+  `join_plan`/`transform`时间线状态
+
+### 顺带修复：单表分析场景读取了不存在的merged_data_path文件
+
+回归验证时发现`node4_analysis`/`node5_report`/`node6_followup`三处都用
+`state.get("merged_data_path") or state["cleaned_data_path"]`选数据源，但
+`merged_data_path`在`_initial_state`里始终是非空路径字符串（即使没有任何join发
+生），导致单表场景永远走到这个分支去读一个从未被写入的`merged.parquet`，
+Node4直接抛`FileNotFoundError`，单表全流程此前实际无法跑通Node4之后的步骤。
+`api/core/graph.py`新增`_data_path(state)`helper，按`confirmed_join_plan`是否
+真的有`joins`来决定用哪个路径，三处统一改为调用该helper。
+
+curl端到端验证：上传单表CSV→口径确认→清洗预览拒绝（验证回退到口径确认而非
+END）→重新确认（验证`initialSchema`生效，编辑值被保留）→清洗预览确认（编辑后
+删除`drop_duplicates`步骤、修改`fillna`填充值，验证实际执行的plan与编辑结果
+一致）→分析→报告→追问就绪，全流程正常完成。
+
 ## 2026-06-17（续4）
 
 ### 新增转化漏斗分析模块（FunnelModule），补齐DEBT.md记录的漏斗覆盖缺口

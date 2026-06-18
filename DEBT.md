@@ -8,6 +8,15 @@
 
 ### 已解决
 
+- ~~**transform_approved=False 取消时无法返回 Node2 重新确认**~~（2026-06-17发现，
+  2026-06-17续5解决）：`node3_preview`的interrupt resume约定改为
+  `{"action": "confirm"|"reject", "plan": [...]}`，`_route_after_preview`在
+  `reject`时路由回`node2_confirmation`重新触发口径确认interrupt，不再走`END`；
+  `ConfirmationForm.js`新增`initialSchema`沿用上一轮编辑结果。同时清洗计划本身
+  改为可编辑（删除/修改单条操作），减少了真正需要"整体回退"的场景。详见
+  CHANGELOG.md。Join方案阶段的回退（P2，"Join阶段发现口径错误时可返回改口径"）
+  暂未做，见下方待解决。
+
 - ~~**分析模块未覆盖转化漏斗（曝光→申请→授信→放款）**~~（2026-06-17发现，
   2026-06-17解决）：新增`api/modules/funnel.py`（`FunnelModule`，category=
   转化/留存），按 user_id 启发式识别各阶段（列名关键词+该列是否非空），输出
@@ -55,11 +64,6 @@
        `pdf_generated=True`）。
   - **本地开发（Windows）不安装 GTK3 Runtime**（2026-06-15 决策）：PDF 文件本身
     的渲染验证推迟到服务器部署时处理；本地仅验证 `report_html`/置信度/叙事逻辑。
-- **transform_approved=False 取消时无法返回 Node2 重新确认（2026-06-16）**：
-  当前 `_route_after_preview` 在 `approved=False` 时直接走向 `END`，图线程结束。
-  用户无法在同一 session 内重新提交口径确认，需重新上传文件开始新 session。
-  后续如需支持"取消后返回口径确认"，需在 graph 中设计从 node3_preview 回到
-  node2_confirmation 的路由，并配套前端状态机处理 `transform/cancelled` 事件。
 - **`/stream` 防重入仅限同一进程（MemorySaver 内存状态）**：进程重启后 MemorySaver
   清空，`graph.get_state()` 返回空 tasks，防重入检查失效。重启后同一 session_id
   再次调用 `/stream` 会重新执行全流程（node0透传→node1→node2 interrupt），
@@ -68,3 +72,8 @@
   （见 empirical-agent `docs/DEBT.md`）。本项目若与 empirical-agent 共用服务器，
   Pandas 处理大 CSV + WeasyPrint 渲染 PDF 可能进一步加剧内存压力，需在部署前评估
   是否需要限制上传文件大小或升级服务器内存。
+- **Join方案确认点缺少"否认/修改"路径（2026-06-17续5，P1/P2，本轮未做）**：
+  本轮只解决了Node3清洗计划的回退（P0）。`JoinPlanForm.js`本身支持编辑但缺少
+  "让AI重新生成"按钮（P1，增量小）；若在Join阶段发现Node2字段口径本身错了，
+  也没有"返回改口径"的路径（P2，需要把`run_node2_confirmation`从线性两阶段
+  改成可循环结构，工作量较大）。等P0验证后再评估是否要做。

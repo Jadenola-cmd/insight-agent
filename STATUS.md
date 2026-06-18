@@ -118,7 +118,82 @@
 
 ## 进行中
 
-- （无，等待用户确认下一步）
+- （无，下次会话优先项见下）
+
+## 下次会话优先做
+
+### Minerva 重构（2026-06-18 讨论确定，Step1-6 已全部完成，闭环跑通）
+
+产品方向：从"线性清洗→分析→报告流水线"转为"假设驱动的持续对话工具"
+（`Minerva_PRD_v1.0.md`/`minerva-prototype.jsx`，不推翻现有后端，接入新对话前端）。
+讨论结论：①假设树 = LLM一次性生成初始树 + 对话增量修改 + UI可编辑（三者都要，
+参照Node3清洗计划可编辑模式）；②数据 = 单数据集会话级共享，问题定义阶段结束后
+统一上传，假设树基于`confirmed_schema`生成；③原型改浅色主题。
+
+`pages/minerva.js` 已是可端到端跑通的真实功能页面（问题澄清→上传→口径确认→
+清洗确认→假设验证→综合结论），下次会话可从"用户体验打磨"和下方两个延后项
+切入，而非继续搭骨架。
+
+- [x] **Step1 假设树数据结构设计**（2026-06-18）：`api/core/schema.py`新增
+      `ProblemCard`/`HypothesisNode`/`HypothesisTreeOp`（含增量操作枚举
+      add_node/update_status/update_summary/merge_node/remove_node）；
+      `api/core/state.py`新增`stage`/`problem_card`/`hypothesis_tree`字段
+      （已按[[project_langgraph_state_gotcha]]提前显式声明）。仅数据结构，
+      未接入graph.py，详见CHANGELOG.md
+- [x] **Step2 graph.py路由骨架改造**（2026-06-18续）：同一张图按
+      "raw.csv是否已存在"+"problem_card是否已写入"两个信号分流旧版/Minerva
+      入口，未新建并行图。`node0_clarification`双模式（旧版透传/Minerva自循环
+      对话）、`node3_transform`后条件边分流到`node4_analysis`（旧版）或
+      `node_hypothesis_tree`（Minerva）。
+- [x] **Step3 Stage1/2/3 Node骨架**（2026-06-18续）：新增`node_awaiting_data`/
+      `node_hypothesis_tree`/`node_verification`/`node_conclusion`
+      （`api/core/graph.py`）+ `api/nodes/hypothesis_tree.py`（固定操作函数
+      `apply_ops` + 3个LLM增量生成函数，LLM均有降级）；验证分发复用
+      `registry.get_module(name)` + `node5_report.py`的置信度/叙事函数，
+      Node1-4模块代码未改一行。
+- [x] **Step4 数据上传时机迁移**（2026-06-18续）：Node1诊断/Node2确认/Node3清洗
+      原样复用；`/api/upload`新增可选`session_id`字段支持复用已占用的会话；
+      `/api/analyze/{id}/stream`删除"raw.csv不存在即报错"的前置guard；新增
+      通用`POST /api/analyze/{id}/resume`服务三个新interrupt点。两条独立冒烟
+      脚本验证Minerva全链路与旧版回归均通过，详见CHANGELOG.md。
+- [x] **Step5 增量上传支持**（2026-06-18续15）：新增`api/nodes/data_append.py`
+      （LLM生成合并key，降级同名列匹配）+ `api/routes/data_append.py`
+      （`/api/analyze/{id}/data/append/preview|confirm`，preview/confirm两步
+      与Node3清洗计划同模式，但不经过LangGraph，不打断`node_hypothesis_tree`
+      的interrupt，直接覆盖写`cleaned_data_path`/`merged_data_path`）。curl
+      端到端验证通过（合并成功/cancel/未preview直接confirm的404保护）。
+- [x] **Step6 前端三栏对话界面**（2026-06-18续16）：新增`pages/minerva.js`
+      （新路由，不改动`pages/index.js`），分析地图（左）+对话区（中）+数据结果
+      （右），浅色主题。复用`ConfirmationForm`/`JoinPlanForm`/`TransformPreview`
+      三个既有组件嵌入对话流（未重写），全流程接真实后端（无mock），统一走
+      `/api/analyze/{id}/resume`通用入口。配合后端补充`last_verification`状态
+      字段（`api/core/state.py`/`graph.py`），`node_verification`写入图表/置信度/
+      叙事供右侧面板渲染。Playwright端到端验证（`test_output/minerva_e2e.js`）
+      问题澄清→上传→口径确认→清洗确认→假设验证→综合结论全链路通过，截图
+      `test_output/minerva_final.png`。过程中发现并修复一个LangGraph细节：
+      `Command(resume=None)`会被当作未提供resume值报错，纯信号型interrupt
+      需传任意真值。
+
+### 旧路线遗留（Minerva之外，不阻塞，延后）
+
+- [ ] **P1**：`JoinPlanForm.js` 加"让AI重新生成"按钮，带用户反馈文本重新调用
+      `_generate_join_plan`（`api/nodes/node2_confirmation.py`）。增量小。
+- [ ] **P2**：Join阶段发现Node2字段口径本身错了时，支持"返回改口径"。需要把
+      `run_node2_confirmation` 从线性两阶段改成可循环结构，工作量较大。
+- 背景：确认流程"否认/修改"重新设计的P0（清洗计划可编辑+拒绝回退）已于
+  2026-06-17续5完成，P1/P2是用户认可的后续方向（非否决），按优先级延后，
+  详见 DEBT.md「Join方案确认点缺少否认/修改路径」。
+
+## 最近完成（2026-06-17 续5，清洗计划可编辑+拒绝回退）
+
+- [x] 解决"确认流程只能往下走，不能否认/修改"的问题（P0范围，详见CHANGELOG.md）：
+      `TransformPreview.js`清洗计划支持删除单条操作+编辑fillna值/cast_type目标
+      类型/unit_convert系数；拒绝时不再终止会话（`DEBT.md`已记录的债），改为路由
+      回`node2_confirmation`重新确认口径，`ConfirmationForm.js`沿用上一轮编辑结果
+      （新增`initialSchema`prop）。顺带修复单表场景`node4_analysis`等三处误读
+      不存在的`merged_data_path`导致的`FileNotFoundError`（此前单表全流程实际
+      无法跑通Node4之后的步骤）。curl端到端验证通过。
+      P1（Join方案重新生成）/P2（Join阶段返回改口径）暂未做，待用户确认是否需要。
 
 ## 最近完成（2026-06-17 续4，新增转化漏斗分析模块）
 

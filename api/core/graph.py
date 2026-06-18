@@ -7,6 +7,7 @@ from langgraph.types import interrupt
 
 from api.core.state import AnalysisState
 from api.modules.registry import default_registry
+from api.modules.visualization import VisualizationModule
 from api.nodes.hypothesis_tree import (
     apply_ops,
     generate_chat_ops,
@@ -76,7 +77,7 @@ def node_awaiting_data(state: AnalysisState) -> dict:
     """阶段一结束、阶段二开始前的人工触发点：等待前端调用 POST /api/upload
     （携带本 session_id）把数据写入 raw_data_path 后再 resume 推进。数据本身
     不进 state（CLAUDE.md 约束4），此处只做信号等待。"""
-    interrupt({"type": "awaiting_data"})
+    interrupt({"type": "awaiting_data", "problem_card": state.get("problem_card")})
     return {"current_node": "node_awaiting_data", "stage": "data_setup"}
 
 
@@ -231,7 +232,12 @@ def node_hypothesis_tree(state: AnalysisState) -> dict:
     if not tree:
         tree = apply_ops(tree, generate_initial_ops(state.get("problem_card") or {}))
 
-    decision = interrupt({"type": "hypothesis_tree", "tree": tree})
+    decision = interrupt({
+        "type": "hypothesis_tree",
+        "tree": tree,
+        "last_verification": state.get("last_verification"),
+        "problem_card": state.get("problem_card"),
+    })
     action = decision.get("action", "chat")
 
     if action == "verify":
@@ -269,6 +275,7 @@ def node_verification(state: AnalysisState) -> dict:
     tree = state.get("hypothesis_tree") or []
     df = pd.read_parquet(_data_path(state))
 
+    last_verification = None
     if module is None or not module.validate(df):
         summary = "所选验证方式不适用于当前数据，请换一个假设或模块重新验证。"
         ops = [{"op": "update_summary", "node_id": node_id, "summary": summary,
@@ -284,6 +291,14 @@ def node_verification(state: AnalysisState) -> dict:
             {"op": "update_summary", "node_id": node_id, "summary": narrative.get("conclusion", ""),
              "node": None, "status": None, "merge_ids": None, "merged_node": None},
         ]
+        last_verification = {
+            "node_id": node_id,
+            "module": module.name,
+            "category": module.category,
+            "chart": VisualizationModule().transform(module.get_chart_spec(metrics)),
+            "confidence": confidence,
+            "narrative": narrative,
+        }
 
     tree = apply_ops(tree, ops)
     return {
@@ -292,6 +307,7 @@ def node_verification(state: AnalysisState) -> dict:
         "stage": "hypothesis_tree",
         "verifying_node_id": None,
         "verifying_module": None,
+        "last_verification": last_verification,
     }
 
 
