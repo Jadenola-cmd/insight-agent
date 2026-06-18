@@ -4,6 +4,58 @@
 
 ---
 
+## 2026-06-18 续19（Minerva自动化测试修复Loop第1轮，修复假设树resume重跑bug）
+
+### 测试方式
+
+Playwright驱动 `http://175.178.91.42:3001/minerva`，4个场景（单表/多表/假设验证
+追问/模糊输入边界）全流程测试，脚本见 `test_output/minerva_scenario.js`。
+
+### 发现并修复：假设树初次resume时被静默重新生成，验证结果错配到不同内容的节点
+
+`api/core/graph.py` 的 `node_hypothesis_tree` 原先在 `interrupt()` 暂停前直接生成
+初始假设树（`if not tree: tree = apply_ops(tree, generate_initial_ops(...))`）。
+LangGraph 恢复 interrupt 时会把所在节点函数从头重新执行，而这次生成从未通过
+`return` 提交到 checkpoint，于是第一次 resume（无论是verify还是chat）都会重新
+调用一次LLM生成一棵内容完全不同的新树（用 Playwright 网络拦截实测复现：
+12节点的初始树在首次verify后变成完全不同措辞的15节点新树）。用户在前端选择
+验证的是旧树某个id（如"1.1"），但因为新树同id语义完全不同，验证结果被错配到
+错的假设节点上。
+
+修复：拆出独立节点 `node_hypothesis_init`（普通 `return` 提交生成结果，不在
+其内部调用 `interrupt()`），插入到 `node3_transform → node_hypothesis_tree`
+之间；`node_hypothesis_tree` 不再做懒初始化，进入时 tree 必须已非空。
+
+`_route_after_transform` 的 Minerva 分支改为路由到 `node_hypothesis_init`。
+修复前后对照实测：4次 resume（初始生成→verify→chat→verify）原本树id从
+`1.1...3.4`（12节点）跳到`1,1.1...3,3.4`（15节点）再保持不变；修复后4次
+resume全部保持同一棵12节点树，仅对应节点的status/summary被正确更新。
+
+四个测试场景（单表/多表/验证追问/模糊输入边界）修复后全部通过，报告质量
+人工评分均≥70/100。详见 `test_output/loop_log.md`。
+
+---
+
+## 2026-06-18 续18（LLM调用切换至火山方舟 Coding Plan，DashScope降级保留）
+
+### `api/services/llm.py` 重写
+
+`chat_json()` 优先调用火山方舟 Coding Plan（`ARK_API_KEY`，模型
+`ark-code-latest`，`https://ark.cn-beijing.volces.com/api/coding/v3`），
+失败或未配置时自动降级到原有 DashScope（`DASHSCOPE_API_KEY`，
+`deepseek-v4-flash`），调用方（Node0/1/2/3/5/6 及 hypothesis_tree/data_append）
+无需改动。
+
+- Ark 的 `ark-code-latest` **不支持** `response_format: json_object` 参数
+  （实测返回 400 `InvalidParameter`），改为去掉该参数，靠在 system prompt
+  末尾追加"只输出合法JSON，不要markdown代码块"的约束；新增 `_parse_json_content`
+  容错解析，剥除模型可能输出的 ```json 代码块包裹。
+- `api/.env`/`.env.example` 新增 `ARK_API_KEY`。
+- 已用 trace 实测确认：Ark 优先被调用且返回有效 JSON；DashScope 仍保留作为
+  降级路径（未重新跑真实降级场景，逻辑未变）。
+
+---
+
 ## 2026-06-18 续15（Minerva重构 Step5，增量上传支持）
 
 ### 新增 `api/nodes/data_append.py` + `api/routes/data_append.py`

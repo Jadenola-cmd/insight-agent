@@ -2,6 +2,21 @@
 
 ## 已完成
 
+- [x] Minerva自动化测试修复Loop第1轮（2026-06-18续19）：Playwright驱动4个场景
+      （单表/多表/假设验证追问/模糊输入边界）全流程测试，发现并修复严重bug
+      ——假设树首次resume时被静默重新生成、验证结果错配到不同内容的节点
+      （根因：`node_hypothesis_tree`懒初始化代码跑在`interrupt()`暂停前，未
+      提交checkpoint，LangGraph恢复时整段重跑）。拆出`node_hypothesis_init`
+      独立节点修复，4场景修复后全部通过，报告质量人工评分均≥70/100。
+      详见CHANGELOG.md、`test_output/loop_log.md`
+
+- [x] LLM调用主路径切换至火山方舟Coding Plan（2026-06-18续18）：
+      `api/services/llm.py` 的 `chat_json()` 优先调用 `ark-code-latest`
+      （`ARK_API_KEY`），失败/未配置时降级到原有 DashScope，所有调用方
+      （Node0/1/2/3/5/6、hypothesis_tree、data_append）无需改动。修复了
+      Ark 不支持 `response_format:json_object` 的兼容问题（改prompt约束+
+      容错解析），实测确认优先路径生效。详见CHANGELOG.md
+
 - [x] 项目文档初始化：`CLAUDE.md`、`CHANGELOG.md`、`STATUS.md`、`DEBT.md`、
       `docs/PRD.md`、`docs/ARCHITECTURE.md`（2026-06-15）
 - [x] 后端 `requirements.txt`、前端 `package.json` 骨架（2026-06-15）
@@ -173,6 +188,57 @@
       `test_output/minerva_final.png`。过程中发现并修复一个LangGraph细节：
       `Command(resume=None)`会被当作未提供resume值报错，纯信号型interrupt
       需传任意真值。
+
+### Minerva 体验测试反馈（2026-06-18 续17，用户实际跑通一遍后提的9条，均未动代码）
+
+按根因分三组，组C是关键发现：验证假设时模块从不知道在验证哪个假设，是#6/#7/#8/#9
+共同的根因，建议单独排期不要和体验小修混在一起。
+
+**组A：前端体验层（纯前端小改）**
+- [ ] **#1** 上传后反馈弱、文件选择无增删改：`pages/minerva.js`原生
+      `<input type="file" multiple>`，选完不能单独删除某个文件，上传中无loading态。
+      → 加已选文件列表+单删按钮，上传中显示spinner
+- [ ] **#4** 验证假设时前端无提醒：点"开始验证"后`sending`只disable按钮，没有可见
+      loading态，和#1是同一类问题。→ 验证中给节点加loading态，建议和#1一起做
+- [ ] **#5** 数据结果图表区域太小：`pages/minerva.js`右栏`width:280`+图表
+      `height:220`是写死的固定值。→ 右栏加宽，图表放大，或加"看大图"弹窗
+
+**组B：流程语义不清晰（前后端都要改，中等改动）**
+- [ ] **#2** 表级问题"我已知晓"指向不明：勾选"命名风格不一致"类问题实际**什么都
+      不会做**——`ALLOWED_LLM_OPS`五种清洗op里没有一种能处理命名风格统一，勾不勾
+      结果完全一样，勾选目前唯一作用是让告警消失。→ 至少把文案改诚实（"忽略，
+      不做任何处理"），要不要真做命名规范清洗op待定
+- [ ] **#3** 退回重新确认口径后，选项没变但清洗计划变了：`node3_preview`每次进入
+      都重新调LLM生成plan（`api/core/graph.py`的`node3_preview`函数），LLM采样
+      随机性会导致**实际清洗结果不一致**（不只是展示文案变化，因为预览展示用的
+      op字典和真正执行用的是同一份）。→ 按`confirmed_schema`内容算指纹缓存，
+      指纹不变直接复用上次plan，不重新调LLM；指纹变了才重新生成；额外加"重新
+      生成"按钮覆盖用户主动要换一版的场景（resume协议加`action:"regenerate"`，
+      和P1的JoinPlanForm重新生成按钮是同一种模式）
+- [ ] **#3附带需求**：确认完口径+join方式后，清洗计划生成时应给真实**数据预览**
+      （不只是操作文字描述）。→ 生成plan后用已有的`run_transform`真的跑一遍
+      （写到临时预览路径，不是最终`cleaned_data_path`），把列名/类型/前N行样本/
+      清洗前后行数对比一起放进interrupt payload；`TransformPreview.js`渲染实际
+      数据表；用户编辑plan后加"更新预览"按钮重新跑（参照Step5增量上传的
+      preview/confirm两步模式）；这个行数对比机制顺便能在用户层面提前拦住
+      DEBT.md记过的"drop_duplicates误删99.5%数据"那类问题。建议和#3的指纹缓存
+      一起做（都在node3_preview这一环）
+
+**组C：核心架构缺口（同根因，建议单独排期）**
+- [ ] **#6/#7/#9** 验证假设时无推荐方案、结论和假设内容脱节、不同假设撞车出
+      雷同结论：根因是`node_verification`（`api/core/graph.py`）调用
+      `module.run(df, {})`时config传空字典，分析模块（如`trend_insight`）的
+      `select_numeric_metric()`只能"自动挑第一个非维度型数值列"，**完全不知道
+      正在验证哪个假设**；`_generate_narrative`（`node5_report.py`）同样只喂
+      metrics，没喂假设文本/问题陈述卡片，所以写不出"数据如何support/refute该
+      假设"的论证，不同假设也就跑出同一份数据同一个结论。→ 验证时把假设
+      label/group传给模块选列逻辑（或让LLM建议用哪个模块+哪些列，取代现在5选1
+      盲选下拉框）；`_generate_narrative`prompt加入假设文本+问题卡片，要求明确
+      写support/refute关系
+- [ ] **#8** 假设树不满足MECE（供给侧/需求侧出现本质重叠的假设）：
+      `generate_initial_ops`（`api/nodes/hypothesis_tree.py`）的prompt完全没要求
+      互斥穷尽，纯靠LLM一次性生成。→ prompt加MECE约束，生成后可加一道去重/
+      自检步骤
 
 ### 旧路线遗留（Minerva之外，不阻塞，延后）
 
