@@ -3,6 +3,7 @@ import json
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from langgraph.types import Command
+from pydantic import BaseModel
 
 from api.core.graph import graph, graph_config
 from api.core.paths import cleaned_data_path, merged_data_path, raw_data_path, report_pdf_path
@@ -41,22 +42,28 @@ def _initial_state(session_id: str) -> dict:
         "confirmed_join_plan": None,
         # session_id 供 node2_confirmation 定位表文件
         "session_id": session_id,
+        # Minerva（PRD v1.0）：未上传数据时 node0_clarification 走对话式问题定义，
+        # 旧版（raw.csv 已存在）这些字段始终保持空值，不影响线性流程
+        "stage": "",
+        "problem_card": None,
+        "hypothesis_tree": [],
+        "clarification_history": [],
+        "clarification_round": 0,
+        "verifying_node_id": None,
+        "verifying_module": None,
     }
 
 
 @router.get("/api/analyze/{session_id}/stream")
 async def analyze_stream(session_id: str) -> StreamingResponse:
-    """启动 LangGraph 流程：Node1 数据诊断 -> Node2 中断等待口径确认。
-    流程在 Node2 的 `interrupt()` 处暂停，本次 SSE 流会在推送
-    `waiting_confirmation` 事件后结束；用户提交确认后通过
-    `POST /api/analyze/{session_id}/confirm` 恢复流程。"""
+    """启动 LangGraph 流程，两种入口（见 node0_clarification 的判断逻辑）：
+    - 旧版：raw.csv 已上传，Node1 数据诊断 -> Node2 中断等待口径确认；
+      `waiting_confirmation` 事件后本次 SSE 结束，用户确认后调用
+      `POST /api/analyze/{session_id}/confirm` 恢复。
+    - Minerva：raw.csv 尚不存在，进入阶段一问题定义对话（推送 `clarification/
+      waiting`），用 `POST /api/analyze/{session_id}/resume` 推进。"""
 
     def event_generator():
-        path = raw_data_path(session_id)
-        if not path.exists():
-            yield _sse("diagnosis", "error", {"message": "未找到上传文件，请重新上传"})
-            return
-
         # 若 checkpoint 已存在且图处于活跃状态，说明流程已启动，禁止重复 stream
         # 避免 LangGraph 把 _initial_state() 误当作上一个 interrupt 的 resume 值
         config = graph_config(session_id)
@@ -178,6 +185,31 @@ async def analyze_confirm_join(session_id: str, join_plan: JoinPlanRequest) -> S
             yield _sse("join_plan", "error", {"message": str(exc)})
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+class ResumeRequest(BaseModel):
+    value: object = None
+
+
+@router.post("/api/analyze/{session_id}/resume")
+async def analyze_resume(session_id: str, body: ResumeRequest) -> dict:
+    """通用 interrupt 恢复入口，服务 Minerva 新增节点（node0_clarification 自循环/
+    node_awaiting_data/node_hypothesis_tree）：value 直接作为 resume 值传给对应
+    节点的 interrupt() 调用方。node2/node3_preview/node6 仍用各自专属确认接口
+    （历史原因，未迁移），不受本接口影响。"""
+    config = graph_config(session_id)
+    state_snapshot = graph.get_state(config)
+    if not state_snapshot.tasks or not any(t.interrupts for t in state_snapshot.tasks):
+        raise HTTPException(status_code=409, detail="当前会话不在等待恢复状态")
+
+    for _ in graph.stream(Command(resume=body.value), config, stream_mode="updates"):
+        pass
+
+    updated = graph.get_state(config)
+    for task in updated.tasks:
+        if task.interrupts:
+            return {"status": "waiting", "interrupt": task.interrupts[0].value}
+    return {"status": "done", "stage": updated.values.get("stage")}
 
 
 @router.get("/api/report/{session_id}/pdf")

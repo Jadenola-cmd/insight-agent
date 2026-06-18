@@ -77,11 +77,15 @@ def run_clarification(state: dict) -> dict:
 
     system_prompt = (
         "你是商业分析需求澄清助手。通过最多3轮对话，把用户模糊的分析需求收敛为"
-        "明确的分析目标（analysis_goal）。"
+        "明确的分析目标（analysis_goal）。追问聚焦三个方向：①基准问题（这个指标"
+        "正常水位是多少）②定义问题（这个指标背后代表什么业务现实）③范围问题"
+        "（是独立问题还是更深层问题的症状）。"
         "如果信息仍不充分且未到第3轮，输出一个简短的追问问题（done=false，"
-        "analysis_goal为空字符串）；如果信息已充分，或已到第3轮（必须收敛），"
-        "输出最终 analysis_goal（done=true），用一段话描述：业务问题、"
-        "决策背景、需要的数据、预计运行的分析模块（趋势/对比/人群/归因中的若干）。"
+        "analysis_goal/question/baseline/business_meaning均为空字符串）；如果信息"
+        "已充分，或已到第3轮（必须收敛），输出最终结果（done=true）：analysis_goal"
+        "用一段话描述业务问题/决策背景/需要的数据/预计运行的分析模块（趋势/对比/"
+        "人群/归因中的若干）；question为校验后的问题描述；baseline为指标正常范围"
+        "或历史水位；business_meaning为这个指标真正代表的业务现实。"
         "严格按JSON格式输出，不要输出任何多余文字、不要使用Markdown代码块。"
     )
     user_prompt = f"""对话历史（JSON数组）：
@@ -95,7 +99,7 @@ def run_clarification(state: dict) -> dict:
 当前轮次：{round_no}/{MAX_ROUNDS}{"（已达最大轮次，必须输出analysis_goal）" if force_conclude else ""}
 
 请输出以下JSON结构：
-{{"reply": "追问问题或对analysis_goal的简短说明", "analysis_goal": "已收敛时的分析目标描述，未收敛为空字符串", "done": true/false}}
+{{"reply": "追问问题或对analysis_goal的简短说明", "analysis_goal": "已收敛时的分析目标描述，未收敛为空字符串", "question": "...", "baseline": "...", "business_meaning": "...", "done": true/false}}
 """
 
     result = chat_json(system_prompt, user_prompt)
@@ -110,12 +114,16 @@ def run_clarification(state: dict) -> dict:
             reply = "AI澄清暂不可用，请直接描述你的分析目标和关注的数据范围。"
             analysis_goal = ""
             done = False
+        question, baseline, business_meaning = analysis_goal, "", ""
     else:
         reply = result.get("reply", "")
         analysis_goal = result.get("analysis_goal", "") or ""
         done = bool(result.get("done", False)) or force_conclude
         if done and not analysis_goal:
             analysis_goal = user_message
+        question = result.get("question", "") or analysis_goal
+        baseline = result.get("baseline", "") or ""
+        business_meaning = result.get("business_meaning", "") or ""
 
     new_history = history + [
         {"role": "user", "content": user_message},
@@ -126,5 +134,8 @@ def run_clarification(state: dict) -> dict:
         "clarification_history": new_history,
         "round": round_no,
         "analysis_goal": analysis_goal,
+        "question": question,
+        "baseline": baseline,
+        "business_meaning": business_meaning,
         "done": done,
     }

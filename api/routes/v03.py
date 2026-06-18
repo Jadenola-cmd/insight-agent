@@ -80,6 +80,7 @@ async def clarify_stream(session_id: str) -> StreamingResponse:
 
 class TransformConfirmRequest(BaseModel):
     approved: bool
+    plan: list[dict] | None = None
 
 
 @router.get("/api/analyze/{session_id}/transform/preview")
@@ -100,10 +101,13 @@ async def transform_preview(session_id: str) -> dict:
 
 @router.post("/api/analyze/{session_id}/transform/confirm")
 async def transform_confirm(session_id: str, body: TransformConfirmRequest) -> StreamingResponse:
-    """恢复 node3_preview interrupt，继续执行 node3→node4→node5→node6_followup。
+    """恢复 node3_preview interrupt。
 
-    SSE 事件流：transform/done → analysis/done → report/done → followup/ready
-    approved=false 时直接返回 transform/cancelled，不继续执行。
+    approved=true：携带（可能被前端编辑过的）plan，继续执行
+      node3→node4→node5→node6_followup，SSE: transform/done → analysis/done →
+      report/done → followup/ready。
+    approved=false：回退到 node2_confirmation 重新做口径确认（不再终止会话），
+      SSE 推送 confirmation/waiting_confirmation，前端据此重新展示口径确认表单。
     """
     def event_generator():
         config = graph_config(session_id)
@@ -113,15 +117,12 @@ async def transform_confirm(session_id: str, body: TransformConfirmRequest) -> S
             yield _sse("transform", "error", {"message": "当前会话不在等待清洗确认状态"})
             return
 
-        if not body.approved:
-            # 用 Command(resume=False) 恢复图，图会通过条件边走向 END
-            for _ in graph.stream(Command(resume=False), config, stream_mode="updates"):
-                pass
-            yield _sse("transform", "cancelled", {"message": "已取消清洗，请重新提交口径确认"})
-            return
+        resume_value = (
+            {"action": "confirm", "plan": body.plan} if body.approved else {"action": "reject"}
+        )
 
         try:
-            for chunk in graph.stream(Command(resume=True), config, stream_mode="updates"):
+            for chunk in graph.stream(Command(resume=resume_value), config, stream_mode="updates"):
                 if "node3_transform" in chunk:
                     yield _sse("transform", "done",
                                chunk["node3_transform"]["analysis_results"]["transform"])
@@ -138,8 +139,13 @@ async def transform_confirm(session_id: str, body: TransformConfirmRequest) -> S
                         "pdf_url": f"/api/report/{session_id}/pdf",
                     })
                 elif "__interrupt__" in chunk:
-                    # node6_followup interrupt：报告已生成，等待追问
-                    yield _sse("followup", "ready", {})
+                    payload = chunk["__interrupt__"][0].value
+                    if "diagnosis" in payload:
+                        # 拒绝清洗计划，回退到 node2_confirmation 重新做口径确认
+                        yield _sse("confirmation", "waiting_confirmation", payload["diagnosis"])
+                    else:
+                        # node6_followup interrupt：报告已生成，等待追问
+                        yield _sse("followup", "ready", {})
                     break
         except Exception as exc:
             yield _sse("transform", "error", {"message": str(exc)})

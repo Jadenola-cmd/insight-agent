@@ -284,9 +284,14 @@ def run_transform(
     cleaned_data_path: str,
     join_plan: dict | None = None,
     merged_data_path: str | None = None,
+    final_plan: list[dict] | None = None,
 ) -> dict:
     """Node3：执行确定性清洗 plan，写入 cleaned_data_path（parquet）；
     若有 join_plan，则先执行 merge 再清洗，结果写入 merged_data_path。
+
+    final_plan：Node3预览阶段用户确认（可能编辑过，如删除某条建议操作）的最终
+    清洗计划。给定时直接按此执行，不再重新推导/调用LLM，确保"预览看到的"与
+    "实际执行的"一致。
     """
     df = pd.read_csv(raw_data_path)
 
@@ -295,10 +300,13 @@ def run_transform(
         df = _execute_join_plan(df, join_plan, raw_data_path)
 
     # ---- 清洗 ----
-    deterministic_ops = _build_deterministic_ops(confirmed_schema)
-    llm_ops, llm_available = _llm_supplementary_ops(confirmed_schema, deterministic_ops)
-
-    plan = _order_plan(deterministic_ops + llm_ops)
+    if final_plan is not None:
+        plan = _order_plan(final_plan)
+        llm_available = True
+    else:
+        deterministic_ops = _build_deterministic_ops(confirmed_schema)
+        llm_ops, llm_available = _llm_supplementary_ops(confirmed_schema, deterministic_ops)
+        plan = _order_plan(deterministic_ops + llm_ops)
 
     for op in plan:
         try:

@@ -242,7 +242,7 @@ export default function Home() {
     }
   };
 
-  const handleRunPipeline = async () => {
+  const handleRunPipeline = async (plan) => {
     setStatus("confirming");
     setConfirmPhase("pipeline");
 
@@ -250,12 +250,11 @@ export default function Home() {
       const res = await fetch(`${API_URL}/api/analyze/${sessionId}/transform/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ approved: true }),
+        body: JSON.stringify({ approved: true, plan }),
       });
       if (!res.ok) throw new Error(`确认失败：HTTP ${res.status}`);
 
       await readSseStream(res, (payload) => {
-        const key = `${payload.node}/${payload.status}`;
         setEvents((prev) => [...prev, payload]);
 
         if (payload.node === "transform" && payload.status === "done") {
@@ -278,16 +277,40 @@ export default function Home() {
     }
   };
 
-  const handleCancelTransform = async () => {
+  // 退回清洗计划：不再终止会话，流程回退到口径确认，重新展示表单（沿用上一轮的编辑结果）
+  const handleRejectTransform = async () => {
+    setStatus("confirming");
+    setConfirmPhase("reject_transform");
+
     try {
       const res = await fetch(`${API_URL}/api/analyze/${sessionId}/transform/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ approved: false }),
       });
-      if (res.ok) {
-        reset();
-      }
+      if (!res.ok) throw new Error(`操作失败：HTTP ${res.status}`);
+
+      await readSseStream(res, (payload) => {
+        if (payload.node === "confirmation" && payload.status === "waiting_confirmation") {
+          // 退回到口径确认：清掉本轮已失效的 join_plan/transform 时间线状态，避免显示陈旧的"等待预览确认"
+          setEvents((prev) => [
+            ...prev.filter((e) => e.node !== "join_plan" && e.node !== "transform"),
+            payload,
+          ]);
+          setDiagnosis(payload.data);
+          setTransformPlan([]);
+          setJoinPlan(null);
+          setStatus("waiting_confirmation");
+          setConfirmPhase(null);
+        } else {
+          setEvents((prev) => [...prev, payload]);
+        }
+
+        if (payload.status === "error") {
+          setStatus("error");
+          setErrorMessage(payload.data?.message || "未知错误");
+        }
+      });
     } catch (err) {
       setStatus("error");
       setErrorMessage(err.message);
@@ -406,7 +429,12 @@ export default function Home() {
         )}
 
         {status === "waiting_confirmation" && diagnosis && (
-          <ConfirmationForm diagnosis={diagnosis} onSubmit={handlePrepareTransform} submitting={false} />
+          <ConfirmationForm
+            diagnosis={diagnosis}
+            initialSchema={pendingSchema}
+            onSubmit={handlePrepareTransform}
+            submitting={false}
+          />
         )}
 
         {status === "waiting_join_confirm" && joinPlan && (
@@ -420,11 +448,9 @@ export default function Home() {
 
         {status === "waiting_transform_confirm" && (
           <TransformPreview
-            apiUrl={API_URL}
-            sessionId={sessionId}
             transformPlan={transformPlan}
             onConfirm={handleRunPipeline}
-            onCancel={handleCancelTransform}
+            onReject={handleRejectTransform}
           />
         )}
 
@@ -436,6 +462,8 @@ export default function Home() {
                 ? "口径已确认，正在准备清洗计划..."
                 : confirmPhase === "join"
                 ? "关联方案已确认，正在准备清洗计划..."
+                : confirmPhase === "reject_transform"
+                ? "正在退回口径确认..."
                 : "正在清洗数据并执行分析，请稍候..."}
             </span>
           </div>

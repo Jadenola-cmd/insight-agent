@@ -42,34 +42,98 @@ function describeOp(step) {
   }
 }
 
-// Step4 清洗计划预览确认：展示Node3生成的transform_plan，用户确认后调用 onConfirm 处理后续流程
-export default function TransformPreview({ apiUrl, sessionId, transformPlan, onConfirm, onCancel }) {
+// 支持内联编辑的字段：fillna的填充值、cast_type的目标类型、unit_convert的换算系数。
+// 其余op（rename/drop_columns/standardize_categories等）只支持整条删除，避免过度设计。
+const CAST_TYPE_OPTIONS = Object.keys(TYPE_LABELS);
+
+function EditableValue({ step, onChange }) {
+  switch (step.op) {
+    case "fillna":
+      return (
+        <input
+          type="text"
+          value={step.value ?? ""}
+          onChange={(e) => onChange({ value: e.target.value })}
+          style={styles.inlineInput}
+        />
+      );
+    case "cast_type":
+      return (
+        <select
+          value={step.to}
+          onChange={(e) => onChange({ to: e.target.value })}
+          style={styles.inlineInput}
+        >
+          {CAST_TYPE_OPTIONS.map((t) => (
+            <option key={t} value={t}>{TYPE_LABELS[t]}</option>
+          ))}
+        </select>
+      );
+    case "unit_convert":
+      return (
+        <input
+          type="number"
+          value={step.factor ?? ""}
+          onChange={(e) => onChange({ factor: Number(e.target.value) })}
+          style={styles.inlineInput}
+        />
+      );
+    default:
+      return null;
+  }
+}
+
+// Step4 清洗计划预览确认：展示Node3生成的transform_plan，支持删除/微调单条操作后
+// 再确认执行；也可整体退回上一步重新做口径确认（不再是死路，回退后流程会
+// 重新生成清洗计划）。
+export default function TransformPreview({ transformPlan, onConfirm, onReject }) {
+  const [steps, setSteps] = useState(() => transformPlan || []);
   const [submitting, setSubmitting] = useState(false);
+
+  const updateStep = (idx, patch) => {
+    setSteps((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+  };
+
+  const removeStep = (idx) => {
+    setSteps((prev) => prev.filter((_, i) => i !== idx));
+  };
 
   const handleConfirm = () => {
     setSubmitting(true);
-    onConfirm?.();
+    onConfirm?.(steps);
   };
 
-  const handleCancel = () => {
-    onCancel?.();
+  const handleReject = () => {
+    setSubmitting(true);
+    onReject?.();
   };
 
   return (
     <div className="ia-card">
       <h2 style={styles.sectionTitle}>清洗计划预览</h2>
-      <p style={styles.subtitle}>请确认以下清洗操作后再执行，确认后将按此计划清洗数据。</p>
+      <p style={styles.subtitle}>
+        可删除不需要的操作、调整填充值/类型/换算系数；如果问题源于字段口径本身，可退回上一步重新确认。
+      </p>
 
-      {(!transformPlan || transformPlan.length === 0) && (
+      {steps.length === 0 && (
         <p style={styles.empty}>暂无清洗操作，可直接确认进入分析。</p>
       )}
 
-      {transformPlan?.length > 0 && (
+      {steps.length > 0 && (
         <ul style={styles.planList}>
-          {transformPlan.map((step, idx) => (
+          {steps.map((step, idx) => (
             <li key={idx} style={styles.planRow}>
               <span style={styles.opTag}>{OP_LABELS[step.op] || step.op}</span>
               <span style={styles.desc}>{describeOp(step)}</span>
+              <EditableValue step={step} onChange={(patch) => updateStep(idx, patch)} />
+              <button
+                className="btn btn-ghost"
+                onClick={() => removeStep(idx)}
+                disabled={submitting}
+                style={styles.removeBtn}
+              >
+                删除
+              </button>
             </li>
           ))}
         </ul>
@@ -79,8 +143,8 @@ export default function TransformPreview({ apiUrl, sessionId, transformPlan, onC
         <button className="btn btn-primary" onClick={handleConfirm} disabled={submitting}>
           {submitting ? "提交中..." : "确认执行"}
         </button>
-        <button className="btn btn-ghost" onClick={handleCancel} disabled={submitting}>
-          取消
+        <button className="btn btn-ghost" onClick={handleReject} disabled={submitting}>
+          退回修改口径
         </button>
       </div>
     </div>
@@ -126,6 +190,18 @@ const styles = {
   desc: {
     color: "#2f3542",
     fontSize: "0.9rem",
+  },
+  inlineInput: {
+    padding: "0.15rem 0.4rem",
+    borderRadius: "0.3rem",
+    border: "1px solid #dcdfe6",
+    fontSize: "0.85rem",
+    width: "6rem",
+  },
+  removeBtn: {
+    fontSize: "0.8rem",
+    padding: "0.1rem 0.5rem",
+    marginLeft: "auto",
   },
   buttonRow: {
     display: "flex",

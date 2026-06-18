@@ -19,22 +19,34 @@ const MISSING_VALUE_OPTIONS = [
   { value: "drop_rows", label: "删除该行" },
 ];
 
-function buildInitialColumns(diagnosis) {
-  return diagnosis.columns.map((col) => ({
-    original_name: col.name,
-    final_name: col.name,
-    business_meaning: col.inferred_meaning || "",
-    include: true,
-    missing_value_strategy: col.null_rate > 0 ? "fill" : "none",
-    fill_value: "",
-    // 仅用于UI展示，不提交
-    _diagnosis: col,
-  }));
+function buildInitialColumns(diagnosis, initialSchema) {
+  const prevByName = {};
+  for (const col of initialSchema?.columns || []) prevByName[col.original_name] = col;
+
+  return diagnosis.columns.map((col) => {
+    const prev = prevByName[col.name];
+    if (prev) {
+      // 上一轮已确认过：沿用用户的编辑结果，而不是重新从诊断结果生成默认值
+      return { ...prev, _diagnosis: col };
+    }
+    return {
+      original_name: col.name,
+      final_name: col.name,
+      business_meaning: col.inferred_meaning || "",
+      include: true,
+      missing_value_strategy: col.null_rate > 0 ? "fill" : "none",
+      fill_value: "",
+      // 仅用于UI展示，不提交
+      _diagnosis: col,
+    };
+  });
 }
 
-export default function ConfirmationForm({ diagnosis, onSubmit, submitting }) {
-  const [columns, setColumns] = useState(() => buildInitialColumns(diagnosis));
-  const [resolvedIssues, setResolvedIssues] = useState(() => new Set());
+export default function ConfirmationForm({ diagnosis, initialSchema, onSubmit, submitting }) {
+  const [columns, setColumns] = useState(() => buildInitialColumns(diagnosis, initialSchema));
+  const [resolvedIssues, setResolvedIssues] = useState(
+    () => new Set(initialSchema?.resolved_table_issues || [])
+  );
 
   const updateColumn = (idx, patch) => {
     setColumns((prev) => prev.map((c, i) => (i === idx ? { ...c, ...patch } : c)));
@@ -63,6 +75,11 @@ export default function ConfirmationForm({ diagnosis, onSubmit, submitting }) {
       <p style={styles.subtitle}>
         共 {diagnosis.row_count} 行数据，请确认每个字段的含义与处理方式（疑似问题字段已高亮）。
       </p>
+      {initialSchema && (
+        <p style={styles.reviseHint}>
+          已退回此步骤修改，以下已沿用您上一轮的选择，可直接调整后重新提交。
+        </p>
+      )}
 
       {diagnosis.table_issues?.length > 0 && (
         <div style={styles.tableIssues}>
@@ -187,6 +204,14 @@ const styles = {
   },
   subtitle: {
     color: "#606266",
+  },
+  reviseHint: {
+    color: "#e6a23c",
+    fontSize: "0.85rem",
+    backgroundColor: "#fdf6ec",
+    border: "1px solid #f5dab1",
+    borderRadius: "0.4rem",
+    padding: "0.5rem 0.8rem",
   },
   tableIssues: {
     backgroundColor: "#fdf6ec",

@@ -72,3 +72,56 @@ class JoinPlanRequest(BaseModel):
 
     primary_table: str
     joins: list[JoinEntryRequest]
+
+
+# ---- Minerva 假设树相关（PRD v1.0，2026-06-18 设计） ----
+
+class ProblemCard(TypedDict):
+    """阶段一（问题定义）输出，对应 PRD 第三节"问题陈述卡片"。"""
+
+    question: str
+    baseline: str
+    business_meaning: str
+    analysis_goal: str
+
+
+HypothesisStatus = Literal["pending", "verifying", "verified", "rejected", "partial"]
+# pending=待验证 verifying=验证中 verified=已验证(支持) rejected=已排除 partial=部分验证
+
+
+class HypothesisNode(TypedDict):
+    """假设树单个节点。group 是叙述性分组名（如"需求侧"），不是节点 id；
+    根因分组节点 parent 为 None。"""
+
+    id: str
+    parent: str | None
+    group: str
+    label: str
+    priority: bool
+    status: HypothesisStatus
+    verification_summary: str | None
+
+
+HypothesisTreeOpType = Literal[
+    "add_node", "update_status", "update_summary", "merge_node", "remove_node"
+]
+# LLM 每轮只允许输出这组增量操作，禁止直接吐自由文本/整棵树重写，
+# 由固定函数（待 Step2/3 实现）应用到已有 hypothesis_tree 上。
+
+
+class HypothesisTreeOp(TypedDict):
+    """假设树增量更新操作。各 op 类型只使用其相关字段，其余为 None：
+    - add_node: node
+    - update_status: node_id, status
+    - update_summary: node_id, summary
+    - merge_node: merge_ids（被合并的源节点）, merged_node（合并后的新节点）
+    - remove_node: node_id
+    """
+
+    op: HypothesisTreeOpType
+    node: HypothesisNode | None
+    node_id: str | None
+    status: HypothesisStatus | None
+    summary: str | None
+    merge_ids: list[str] | None
+    merged_node: HypothesisNode | None

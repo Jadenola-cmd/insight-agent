@@ -16,11 +16,15 @@ TABLES_DIR = "tables"
 async def upload_file(
     files: List[UploadFile] = File(...),
     analysis_goal: str = Form(""),
+    session_id: str = Form(""),
 ) -> dict:
+    """session_id 留空时按旧版行为新建会话；Minerva 流程在阶段一问题定义阶段
+    已用 node0_clarification 的 interrupt 占住某个 session_id（见 graph.py），
+    此时上传需传入该 session_id，复用同一份 raw.csv 落点，不能再新建。"""
     if not files:
         raise HTTPException(status_code=400, detail="至少上传一个文件")
 
-    session_id = uuid.uuid4().hex
+    session_id = session_id or uuid.uuid4().hex
     session_dir(session_id).mkdir(parents=True, exist_ok=True)
 
     # 保存每个文件到 tables/ 子目录（供 join 方案使用）
