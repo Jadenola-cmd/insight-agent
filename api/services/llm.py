@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 
 import httpx
 
@@ -53,7 +54,11 @@ def _call(
         response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"]
         return _parse_json_content(content)
-    except Exception:
+    except httpx.HTTPStatusError as e:
+        print(f"[llm._call] {model} HTTP {e.response.status_code}: {e.response.text[:300]}", file=sys.stderr)
+        return None
+    except Exception as e:
+        print(f"[llm._call] {model} {type(e).__name__}: {str(e)[:300]}", file=sys.stderr)
         return None
 
 

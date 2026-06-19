@@ -132,6 +132,10 @@ def generate_initial_ops(problem_card: dict) -> list[dict]:
     result = chat_json(system_prompt, user_prompt)
     ops = result.get("ops") if result else None
     if not ops:
+        # 单发关键步骤，失败可能是偶发限流/超时，重试一次再降级为占位假设
+        result = chat_json(system_prompt, user_prompt)
+        ops = result.get("ops") if result else None
+    if not ops:
         return _fallback_initial_ops(problem_card)
     return ops
 
