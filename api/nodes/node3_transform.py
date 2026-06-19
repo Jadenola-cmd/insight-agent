@@ -73,10 +73,14 @@ def _llm_supplementary_ops(confirmed_schema: dict, deterministic_ops: list[dict]
     resolved_table_issues = confirmed_schema.get("resolved_table_issues", [])
 
     system_prompt = (
-        "你是数据清洗助手，根据字段业务含义和用户对表级口径问题的处理说明，输出补充清洗操作列表。\n"
+        "你是数据清洗助手，根据字段业务含义和用户要求AI处理的表级口径问题，输出补充清洗操作列表。\n"
         "严格按指定JSON格式输出，不要输出任何多余文字、不要使用Markdown代码块。\n"
         "只允许输出以下5种操作类型：cast_type、strip_whitespace、standardize_categories、"
         "unit_convert、drop_duplicates。列名必须使用给定的 final_name。\n"
+        "「用户要求AI处理的表级口径问题」列表中的每一条都必须尝试给出实际处理方式：如果问题描述的是"
+        "同义不同名/疑似重复类别（如'click'与'click_event'可能表示同一事件），必须从问题描述中识别出"
+        "涉及的列名和具体的同义值，输出一条 standardize_categories 操作，mapping 把所有同义值统一映射"
+        "到其中一个更规范的值；只有在问题描述完全无法对应到具体列名/具体值时才允许跳过该条。\n"
         "如果没有需要补充的操作，ops 返回空数组。"
     )
     user_prompt = f"""字段列表（final_name + business_meaning）：
@@ -85,7 +89,7 @@ def _llm_supplementary_ops(confirmed_schema: dict, deterministic_ops: list[dict]
 已确定执行的清洗操作（供参考，避免重复处理同一列）：
 {json.dumps(deterministic_ops, ensure_ascii=False)}
 
-用户对表级口径问题的处理说明：
+用户要求AI处理的表级口径问题（必须逐条给出实际处理方式，而非仅供参考）：
 {json.dumps(resolved_table_issues, ensure_ascii=False)}
 
 请输出以下JSON结构：

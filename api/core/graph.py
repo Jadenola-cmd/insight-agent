@@ -330,15 +330,41 @@ def _route_after_hypothesis(state: AnalysisState) -> str:
     return "node_hypothesis_tree"
 
 
+# 前端推荐确认卡片里"标记为数据不足，跳过验证"对应的 verifying_module 哨兵值——
+# 复用已有字段而不新增 state key（体验反馈#3：当前数据没有任何列能支撑该假设的因果
+# 机制时，不应该硬选一个不相关的列跑出一个貌似严谨实则无意义的结论）。
+SKIP_VERIFICATION_MODULE = "__skip__"
+
+
 def node_verification(state: AnalysisState) -> dict:
     """阶段三（验证执行）：复用 registry.get_module(name) 拿到的分析模块在
     全量清洗后数据上跑一次（与 node4_analysis 同一套模块，未做按假设的数据
     子集过滤，留待后续迭代），用 node5_report 的置信度规则+叙事生成判定
     该假设是 verified（置信度非"低"）还是 partial，结果写回假设树对应节点。"""
     node_id = state.get("verifying_node_id")
-    module = default_registry.get_module(state.get("verifying_module") or "")
+    verifying_module = state.get("verifying_module")
     tree = state.get("hypothesis_tree") or []
     hypothesis_node = next((n for n in tree if n.get("id") == node_id), None)
+
+    if verifying_module == SKIP_VERIFICATION_MODULE:
+        summary = "当前数据缺少支撑该假设所需的字段，无法验证。"
+        ops = [
+            {"op": "update_status", "node_id": node_id, "status": "partial",
+             "node": None, "summary": None, "merge_ids": None, "merged_node": None},
+            {"op": "update_summary", "node_id": node_id, "summary": summary, "confidence_level": None,
+             "node": None, "status": None, "merge_ids": None, "merged_node": None},
+        ]
+        tree = apply_ops(tree, ops)
+        return {
+            "current_node": "node_verification",
+            "hypothesis_tree": tree,
+            "stage": "hypothesis_tree",
+            "verifying_node_id": None,
+            "verifying_module": None,
+            "last_verification": None,
+        }
+
+    module = default_registry.get_module(verifying_module or "")
     df = pd.read_parquet(_data_path(state))
 
     last_verification = None

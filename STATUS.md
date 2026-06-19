@@ -2,6 +2,19 @@
 
 ## 已完成
 
+- [x] Minerva假设验证体验修复（2026-06-19续6）：用户实跑反馈3个问题——①口径确认页
+      表级问题（如event_name同义不同名）只能勾选"忽略"没有实际处理路径；②验证假设
+      时用户只能从5个模块里盲猜；③数据与假设不相关时仍强行选一个字段硬跑出结论（如
+      用授信额度验证"页面加载慢导致流失"）。修复：①`ConfirmationForm.js`勾选语义
+      反转为"让AI自动处理"+`node3_transform.py`prompt强制要求同义问题输出具体
+      `standardize_categories`映射；②③新增`recommend_verification()`
+      （`hypothesis_tree.py`）+ REST接口`/verification/recommend`
+      （`routes/verification.py`，不经过LangGraph，参考`data_append.py`先例），
+      点击验证前先展示LLM推荐模块+依据，数据不相关时返回`data_sufficient:false`，
+      `node_verification`新增`SKIP_VERIFICATION_MODULE`哨兵分支支持"标记为数据
+      不足，跳过验证"（未新增state字段）。`test_output/verify_fixes.py`驱动真实
+      LLM跑通完整流程验证3点均生效，`pnpm exec next build`确认前端无编译错误。
+      详见CHANGELOG.md
 - [x] 严重事故修复：部署流程从未真正commit + 服务器LLM key缺失（2026-06-19续5）：
       用户线上实测发现"之前的修复都没生效"+"假设树/综合结论AI解读暂不可用"，排查
       发现本次及更早会话的所有改动一直停留在working tree从未`git commit`，

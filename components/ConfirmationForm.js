@@ -84,6 +84,10 @@ export default function ConfirmationForm({ diagnosis, initialSchema, onSubmit, s
       {diagnosis.table_issues?.length > 0 && (
         <div style={styles.tableIssues}>
           <strong>表级口径问题：</strong>
+          <p style={styles.tableIssueHint}>
+            不勾选 = 忽略此问题、不做任何处理；勾选 = 让AI在下一步清洗计划中尝试自动处理
+            （如合并同义类别），处理结果可在清洗计划预览页查看、编辑或删除。
+          </p>
           <ul style={styles.issueList}>
             {diagnosis.table_issues.map((issue) => (
               <li key={issue} style={styles.tableIssueRow}>
@@ -94,7 +98,7 @@ export default function ConfirmationForm({ diagnosis, initialSchema, onSubmit, s
                     checked={resolvedIssues.has(issue)}
                     onChange={() => toggleResolvedIssue(issue)}
                   />{" "}
-                  我已了解，忽略此问题、不做任何处理
+                  让AI自动处理此问题
                 </label>
               </li>
             ))}
@@ -224,6 +228,11 @@ const styles = {
   issueList: {
     margin: "0.3rem 0 0",
     paddingLeft: "1.2rem",
+  },
+  tableIssueHint: {
+    margin: "0.3rem 0 0",
+    fontSize: "0.8rem",
+    color: "#909399",
   },
   issueListInline: {
     margin: "0.3rem 0 0.6rem",

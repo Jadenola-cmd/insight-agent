@@ -103,6 +103,8 @@ export default function Minerva() {
   const [verifyModule, setVerifyModule] = useState(MODULE_OPTIONS[0].name);
   const [verifyingNodeId, setVerifyingNodeId] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [recommendation, setRecommendation] = useState(null);
+  const [recommending, setRecommending] = useState(false);
 
   const startedRef = useRef(false);
 
@@ -256,6 +258,45 @@ export default function Minerva() {
       await resume({ action: "regenerate" });
     });
 
+  // 点击"验证此假设"先调推荐接口，而不是让用户凭空猜一个分析模块（体验反馈#2）；
+  // 推荐失败时仍允许手动选择，不阻断流程
+  const startVerify = (nodeId) => {
+    setVerifyTarget(nodeId);
+    setRecommendation(null);
+    setRecommending(true);
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/analyze/${sessionId}/verification/recommend`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ node_id: nodeId }),
+        });
+        const data = res.ok ? await res.json() : null;
+        setRecommendation({
+          node_id: nodeId,
+          module: data?.module || null,
+          reason: data?.reason || "AI推荐暂不可用，请手动选择验证模块。",
+          data_sufficient: data?.data_sufficient ?? false,
+        });
+        if (data?.module) setVerifyModule(data.module);
+      } catch (err) {
+        setRecommendation({
+          node_id: nodeId,
+          module: null,
+          reason: "AI推荐暂不可用，请手动选择验证模块。",
+          data_sufficient: false,
+        });
+      } finally {
+        setRecommending(false);
+      }
+    })();
+  };
+
+  const cancelVerify = () => {
+    setVerifyTarget(null);
+    setRecommendation(null);
+  };
+
   const handleVerify = (nodeId, moduleName) => {
     setVerifyingNodeId(nodeId);
     withSending(async () => {
@@ -263,7 +304,24 @@ export default function Minerva() {
         const label = MODULE_OPTIONS.find((m) => m.name === moduleName)?.label || moduleName;
         addMessage("user", `验证假设 ${nodeId}（${label}）`);
         setVerifyTarget(null);
+        setRecommendation(null);
         await resume({ action: "verify", node_id: nodeId, module: moduleName });
+      } finally {
+        setVerifyingNodeId(null);
+      }
+    });
+  };
+
+  // 数据不足时跳过验证：不跑分析模块，直接把假设标记为 partial（体验反馈#3，
+  // 取代此前用不相关字段硬跑出一个"无法支持或反驳"的虚假结论）
+  const handleSkipVerify = (nodeId) => {
+    setVerifyingNodeId(nodeId);
+    withSending(async () => {
+      try {
+        addMessage("user", "标记该假设为数据不足，跳过验证");
+        setVerifyTarget(null);
+        setRecommendation(null);
+        await resume({ action: "verify", node_id: nodeId, module: "__skip__" });
       } finally {
         setVerifyingNodeId(null);
       }
@@ -335,35 +393,66 @@ export default function Minerva() {
                               </div>
                             ) : verifyTarget === n.id ? (
                               <div style={styles.verifyPicker}>
-                                <select
-                                  value={verifyModule}
-                                  onChange={(e) => setVerifyModule(e.target.value)}
-                                  style={styles.select}
-                                >
-                                  {MODULE_OPTIONS.map((m) => (
-                                    <option key={m.name} value={m.name}>
-                                      {m.label}
-                                    </option>
-                                  ))}
-                                </select>
-                                <button
-                                  className="btn btn-primary"
-                                  style={styles.smallBtn}
-                                  disabled={sending}
-                                  onClick={() => handleVerify(n.id, verifyModule)}
-                                >
-                                  开始验证
-                                </button>
-                                <button className="btn btn-outline" style={styles.smallBtn} onClick={() => setVerifyTarget(null)}>
-                                  取消
-                                </button>
+                                {recommending ? (
+                                  <span style={styles.verifyingLabel}>
+                                    <span className="ia-spinner" /> 正在分析最佳验证方式...
+                                  </span>
+                                ) : (
+                                  <>
+                                    {recommendation?.module && (
+                                      <div style={styles.recommendLine}>
+                                        推荐方法：{MODULE_OPTIONS.find((m) => m.name === recommendation.module)?.label || recommendation.module}
+                                      </div>
+                                    )}
+                                    {recommendation?.reason && (
+                                      <div
+                                        style={recommendation.data_sufficient === false ? styles.recommendWarn : styles.recommendReason}
+                                      >
+                                        {recommendation.data_sufficient === false ? "⚠️ " : ""}
+                                        {recommendation.reason}
+                                      </div>
+                                    )}
+                                    <select
+                                      value={verifyModule}
+                                      onChange={(e) => setVerifyModule(e.target.value)}
+                                      style={styles.select}
+                                    >
+                                      {MODULE_OPTIONS.map((m) => (
+                                        <option key={m.name} value={m.name}>
+                                          {m.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <button
+                                      className="btn btn-primary"
+                                      style={styles.smallBtn}
+                                      disabled={sending}
+                                      onClick={() => handleVerify(n.id, verifyModule)}
+                                    >
+                                      开始验证
+                                    </button>
+                                    {recommendation?.data_sufficient === false && (
+                                      <button
+                                        className="btn btn-outline"
+                                        style={styles.smallBtn}
+                                        disabled={sending}
+                                        onClick={() => handleSkipVerify(n.id)}
+                                      >
+                                        标记为数据不足，跳过验证
+                                      </button>
+                                    )}
+                                    <button className="btn btn-outline" style={styles.smallBtn} onClick={cancelVerify}>
+                                      取消
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             ) : (
                               <button
                                 className="btn btn-outline"
                                 style={styles.smallBtn}
                                 disabled={sending}
-                                onClick={() => setVerifyTarget(n.id)}
+                                onClick={() => startVerify(n.id)}
                               >
                                 验证此假设
                               </button>
@@ -599,6 +688,9 @@ const styles = {
   fileName: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   fileRemoveBtn: { fontSize: "0.72rem", padding: "2px 8px", flexShrink: 0 },
   verifyingLabel: { fontSize: "0.75rem", color: "#e6a23c", marginLeft: 4 },
+  recommendLine: { width: "100%", fontSize: "0.75rem", color: "#5470c6", fontWeight: 600 },
+  recommendReason: { width: "100%", fontSize: "0.72rem", color: "#909399" },
+  recommendWarn: { width: "100%", fontSize: "0.72rem", color: "#e6a23c" },
   inputRow: { display: "flex", gap: 10 },
   input: { flex: 1, border: "1px solid #e4e7ed", borderRadius: 6, padding: "10px 14px", fontSize: "0.88rem", outline: "none" },
   placeholder: { fontSize: "0.8rem", color: "#c0c4cc", lineHeight: 1.6 },

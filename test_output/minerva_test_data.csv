@@ -1,0 +1,9 @@
+event_name,user_id,event_time,credit_limit
+click,1,2026-04-01,20000
+click_event,2,2026-04-01,21000
+tap,3,2026-04-02,19000
+touch_click,4,2026-04-02,22000
+click,5,2026-04-03,20500
+apply,6,2026-04-03,23000
+apply,7,2026-04-04,24000
+click,8,2026-04-04,20100

@@ -22,6 +22,31 @@ MODULE_CONFIG_KEYS = {
     "funnel": [],
 }
 
+MODULE_LABELS = {
+    "trend_insight": "趋势/时序",
+    "comparison": "对比/分组",
+    "segmentation": "用户/人群",
+    "attribution": "贡献/驱动因素",
+    "funnel": "转化/留存",
+}
+
+
+def _clean_config(module_name: str, raw_config: dict, df: pd.DataFrame) -> dict:
+    """把LLM输出的config过滤为只含该模块允许的key、且列名真实存在于df中。"""
+    allowed_keys = MODULE_CONFIG_KEYS.get(module_name, [])
+    cleaned = {}
+    for key, value in raw_config.items():
+        if key not in allowed_keys:
+            continue
+        if key == "independent_columns":
+            if isinstance(value, list):
+                valid = [c for c in value if c in df.columns]
+                if valid:
+                    cleaned[key] = valid
+        elif isinstance(value, str) and value in df.columns:
+            cleaned[key] = value
+    return cleaned
+
 
 def apply_ops(tree: list[dict], ops: list[dict]) -> list[dict]:
     """把一组增量操作应用到已有假设树上，返回新树（不修改入参）。"""
@@ -186,19 +211,51 @@ def suggest_verification_config(hypothesis_node: dict, problem_card: dict, modul
     config = result.get("config") if result else None
     if not isinstance(config, dict):
         return {}
+    return _clean_config(module_name, config, df)
 
-    cleaned = {}
-    for key, value in config.items():
-        if key not in allowed_keys:
-            continue
-        if key == "independent_columns":
-            if isinstance(value, list):
-                valid = [c for c in value if c in df.columns]
-                if valid:
-                    cleaned[key] = valid
-        elif isinstance(value, str) and value in df.columns:
-            cleaned[key] = value
-    return cleaned
+
+def recommend_verification(hypothesis_node: dict, problem_card: dict, df: pd.DataFrame) -> dict:
+    """验证假设前，让LLM从全部分析模块中推荐最贴合假设文本的一个+对应列配置，并显式判断
+    当前数据是否真的能支撑该假设——取代此前"用户在前端瞎猜模块"+"suggest_verification_config
+    被迫从给定列里强选一个，哪怕没有一列和假设描述的机制相关"两个问题（体验反馈#2/#3）。
+    LLM不可用或返回格式不合法时 data_sufficient=False，提示前端引导用户手动选择模块。"""
+    columns_info = [{"column": c, "dtype": str(df[c].dtype)} for c in df.columns]
+    system_prompt = (
+        "你是数据分析助手，要为验证某个业务假设推荐最相关的分析模块和数据列。"
+        f"可选模块及各自允许的config字段：{json.dumps(MODULE_CONFIG_KEYS, ensure_ascii=False)}。"
+        "只能从给定的列名中选择，不要编造列名；如果某个字段不需要指定（用默认即可），就不要输出该key。"
+        "independent_columns 是数组。"
+        "最关键的判断：如果现有列中没有任何一列在业务含义上真正能支撑该假设描述的因果机制"
+        "（数值类型凑得上不算，必须语义相关），必须返回 data_sufficient=false，并在 reason 中"
+        "说明缺少哪类数据，不要为了凑出一个答案而选不相关的列或模块。"
+        "严格按JSON格式输出，不要输出任何多余文字、不要使用Markdown代码块。"
+    )
+    user_prompt = f"""问题陈述卡片（JSON）：{json.dumps(problem_card, ensure_ascii=False)}
+待验证假设：{hypothesis_node.get("label")}（分组：{hypothesis_node.get("group")}）
+数据列（列名+类型）：{json.dumps(columns_info, ensure_ascii=False)}
+
+请输出以下JSON结构：
+{{"module": "trend_insight", "config": {{}}, "reason": "一句话说明选择依据，或数据缺失的具体内容", "data_sufficient": true}}
+"""
+    result = chat_json(system_prompt, user_prompt)
+    module = result.get("module") if result else None
+    if not result or module not in MODULE_CONFIG_KEYS:
+        return {
+            "module": None,
+            "module_label": None,
+            "config": {},
+            "reason": "AI推荐暂不可用，请手动选择验证模块。",
+            "data_sufficient": False,
+        }
+
+    raw_config = result.get("config") if isinstance(result.get("config"), dict) else {}
+    return {
+        "module": module,
+        "module_label": MODULE_LABELS.get(module, module),
+        "config": _clean_config(module, raw_config, df),
+        "reason": result.get("reason") or "",
+        "data_sufficient": bool(result.get("data_sufficient", True)),
+    }
 
 
 def _fallback_conclusion(tree: list[dict]) -> dict:

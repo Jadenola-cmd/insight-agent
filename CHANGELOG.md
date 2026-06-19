@@ -4,6 +4,34 @@
 
 ---
 
+## 2026-06-19续6（Minerva假设验证体验修复：表级问题处理路径+验证前推荐方法+数据不足判断）
+
+用户实跑后反馈3个问题，均已修复并跑通端到端验证（`test_output/verify_fixes.py`，
+驱动真实LLM调用走完整Minerva流程）：
+
+1. **口径确认页表级问题无法真正处理**：`ConfirmationForm.js` 的勾选框语义反转——
+   不勾选=忽略，勾选="让AI自动处理此问题"（原文案"我已了解，忽略此问题、不做任何
+   处理"和实际想要的效果正好相反）；`node3_transform.py` 的 `_llm_supplementary_ops`
+   prompt 补充强制指令：遇到同义不同名/疑似重复类别问题时必须识别具体列名和同义值，
+   输出对应 `standardize_categories` 操作+完整mapping。验证脚本确认：勾选后清洗
+   计划页正确生成了 `click_event→click`、`tap→touch_click` 的合并操作。
+2. **验证假设时用户无依据瞎选分析模块**：新增 `recommend_verification()`
+   （`api/nodes/hypothesis_tree.py`）+ `POST /api/analyze/{id}/verification/recommend`
+   （`api/routes/verification.py`，REST方案，不经过LangGraph，参考
+   `api/routes/data_append.py` 的"REST预览+graph resume确认"先例）：点击"验证此假设"
+   先调该接口拿到LLM推荐的模块+列配置+一句话依据，`pages/minerva.js` 展示推荐卡片，
+   用户可直接确认或切换模块，不再是对着5个选项盲猜。
+3. **数据与假设不相关时仍强行给结论**：`recommend_verification()` 的prompt明确要求
+   "现有列中没有一列在语义上真正支撑该假设描述的因果机制时必须返回
+   `data_sufficient: false` 并说明缺什么数据，不允许为了凑答案选不相关的列/模块"；
+   `node_verification`（`api/core/graph.py`）新增 `SKIP_VERIFICATION_MODULE`
+   哨兵值分支（复用已有 `verifying_module` 字段，未新增state key），用户在推荐
+   卡片选择"标记为数据不足，跳过验证"时直接把假设标记 `partial`+"无法验证"摘要，
+   不再用不相关字段（如本次截图里的授信额度）硬跑出一个貌似严谨实则无意义的结论。
+   验证脚本对"产品介绍页信息不透明"等数据侧确实缺失支撑字段的假设实测
+   `data_sufficient=false` 判断正确；另选一个假设走正常 `attribution` 模块验证，
+   确认原有 `module.run`+置信度判定+verdict 叙事逻辑未被破坏。
+
 ## 2026-06-19续5（严重事故复盘：部署流程从未真正commit + 服务器LLM key缺失）
 
 ### 事故描述
