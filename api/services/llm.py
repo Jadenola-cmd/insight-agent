@@ -8,7 +8,7 @@ ARK_URL = "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions"
 ARK_MODEL = "ark-code-latest"
 
 DASHSCOPE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-DASHSCOPE_MODEL = "deepseek-v4-flash"
+DASHSCOPE_MODEL = "glm-5.1"
 
 
 def _parse_json_content(content: str) -> dict:
@@ -84,4 +84,9 @@ def chat_json(system_prompt: str, user_prompt: str, timeout: float = 60.0) -> di
     if not dashscope_key:
         return None
 
-    return _call(DASHSCOPE_URL, dashscope_key, DASHSCOPE_MODEL, system_prompt, user_prompt, timeout)
+    # glm-5.1 不支持 response_format=json_object，靠 prompt 约束输出格式（同 Ark 的处理方式）
+    dashscope_system_prompt = system_prompt + "\n\n只输出合法 JSON，不要使用 markdown 代码块，不要任何额外文字。"
+    return _call(
+        DASHSCOPE_URL, dashscope_key, DASHSCOPE_MODEL, dashscope_system_prompt, user_prompt, timeout,
+        use_json_response_format=False,
+    )
