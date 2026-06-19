@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>综合结论</title>
+<style>
+  .minerva-report {
+    font-family: "Noto Sans CJK SC", "Noto Sans SC", "Microsoft YaHei", "SimHei", sans-serif;
+    color: #1f2329;
+    line-height: 1.6;
+    font-size: 14px;
+  }
+  .minerva-report h1 {
+    font-size: 20px;
+    margin-bottom: 0.6em;
+  }
+  .minerva-report h2 {
+    font-size: 16px;
+    margin-top: 1.4em;
+    color: #2f3542;
+  }
+  .minerva-report .problem-card {
+    border: 1px solid #e4e7ed;
+    border-radius: 6px;
+    padding: 12px 16px;
+    background-color: #f7f8fa;
+    margin-bottom: 1em;
+  }
+  .minerva-report .problem-card p {
+    margin: 0.3em 0;
+  }
+  .minerva-report .problem-card .label {
+    font-weight: bold;
+    margin-right: 0.4em;
+    color: #606266;
+  }
+  .minerva-report .group-block {
+    margin-bottom: 1em;
+  }
+  .minerva-report .group-title {
+    font-weight: bold;
+    font-size: 15px;
+    margin-bottom: 0.4em;
+  }
+  .minerva-report .hypothesis-item {
+    border: 1px solid #e4e7ed;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 0.6em;
+  }
+  .minerva-report .hypothesis-item .hypothesis-label {
+    font-weight: 600;
+  }
+  .minerva-report .badge {
+    display: inline-block;
+    padding: 0.1em 0.6em;
+    border-radius: 0.3em;
+    font-size: 12px;
+    font-weight: bold;
+    color: #fff;
+    margin-left: 0.5em;
+  }
+  .minerva-report .status-verified { background-color: #67c23a; }
+  .minerva-report .status-partial { background-color: #e6a23c; }
+  .minerva-report .status-rejected { background-color: #f56c6c; }
+  .minerva-report .status-pending,
+  .minerva-report .status-verifying { background-color: #909399; }
+  .minerva-report .confidence-高 { background-color: #67c23a; }
+  .minerva-report .confidence-中 { background-color: #e6a23c; }
+  .minerva-report .confidence-低 { background-color: #f56c6c; }
+  .minerva-report .verification-summary {
+    margin: 0.4em 0 0;
+    color: #606266;
+    font-size: 13px;
+  }
+  .minerva-report .executive-summary,
+  .minerva-report .recommendation {
+    margin: 0.4em 0;
+  }
+  .minerva-report .caveats {
+    margin-top: 0.6em;
+    padding: 8px 12px;
+    background-color: #fdf6ec;
+    border-left: 3px solid #e6a23c;
+    color: #b88230;
+    font-size: 13px;
+  }
+  .minerva-report .caveats ul {
+    margin: 0.3em 0 0 0;
+    padding-left: 1.2em;
+  }
+</style>
+</head>
+<body>
+  <div class="minerva-report">
+    <h1>综合结论</h1>
+
+    {% if problem_card %}
+    <div class="problem-card">
+      <p><span class="label">问题：</span>{{ problem_card.question }}</p>
+      {% if problem_card.baseline %}<p><span class="label">基线：</span>{{ problem_card.baseline }}</p>{% endif %}
+      {% if problem_card.business_meaning %}<p><span class="label">业务含义：</span>{{ problem_card.business_meaning }}</p>{% endif %}
+    </div>
+    {% endif %}
+
+    <h2>假设验证情况</h2>
+    {% for group_name, nodes in groups.items() %}
+    <div class="group-block">
+      <div class="group-title">{{ group_name }}</div>
+      {% for node in nodes %}
+      <div class="hypothesis-item">
+        <span class="hypothesis-label">{{ node.label }}</span>
+        <span class="badge status-{{ node.status }}">{{ status_labels.get(node.status, node.status) }}</span>
+        {% if node.confidence_level %}
+        <span class="badge confidence-{{ node.confidence_level }}">置信度：{{ node.confidence_level }}</span>
+        {% endif %}
+        {% if node.verification_summary %}
+        <p class="verification-summary">{{ node.verification_summary }}</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+
+    <h2>执行摘要</h2>
+    <p class="executive-summary">{{ conclusion.executive_summary }}</p>
+
+    <h2>下一步建议</h2>
+    <p class="recommendation">{{ conclusion.recommendation }}</p>
+
+    {% if conclusion.caveats %}
+    <div class="caveats">
+      <strong>注意事项：</strong>
+      <ul>
+        {% for caveat in conclusion.caveats %}
+        <li>{{ caveat }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+</body>
+</html>

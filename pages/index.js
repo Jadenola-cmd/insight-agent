@@ -101,6 +101,7 @@ export default function Home() {
 
   const [pendingSchema, setPendingSchema] = useState(null);
   const [transformPlan, setTransformPlan] = useState([]);
+  const [dataPreview, setDataPreview] = useState(null);
   const [confirmPhase, setConfirmPhase] = useState(null);
 
   // Join 方案确认
@@ -120,6 +121,7 @@ export default function Home() {
     setReportResult(null);
     setPendingSchema(null);
     setTransformPlan([]);
+    setDataPreview(null);
     setConfirmPhase(null);
     setJoinPlan(null);
     setTableColumns({});
@@ -196,6 +198,7 @@ export default function Home() {
           setConfirmPhase(null);
         } else if (payload.node === "transform" && payload.status === "waiting_preview") {
           setTransformPlan(payload.data.transform_plan);
+          setDataPreview(payload.data.data_preview || null);
           setStatus("waiting_transform_confirm");
           setConfirmPhase(null);
         } else if (payload.status === "error") {
@@ -229,6 +232,7 @@ export default function Home() {
           // join 方案已确认
         } else if (payload.node === "transform" && payload.status === "waiting_preview") {
           setTransformPlan(payload.data.transform_plan);
+          setDataPreview(payload.data.data_preview || null);
           setStatus("waiting_transform_confirm");
           setConfirmPhase(null);
         } else if (payload.status === "error") {
@@ -299,6 +303,7 @@ export default function Home() {
           ]);
           setDiagnosis(payload.data);
           setTransformPlan([]);
+          setDataPreview(null);
           setJoinPlan(null);
           setStatus("waiting_confirmation");
           setConfirmPhase(null);
@@ -307,6 +312,35 @@ export default function Home() {
         }
 
         if (payload.status === "error") {
+          setStatus("error");
+          setErrorMessage(payload.data?.message || "未知错误");
+        }
+      });
+    } catch (err) {
+      setStatus("error");
+      setErrorMessage(err.message);
+    }
+  };
+
+  // 让AI重新生成清洗计划：不退回口径确认，仅丢弃缓存重新调用LLM生成新版plan
+  const handleRegenerateTransform = async () => {
+    setConfirmPhase("regenerate_transform");
+
+    try {
+      const res = await fetch(`${API_URL}/api/analyze/${sessionId}/transform/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approved: false, action: "regenerate" }),
+      });
+      if (!res.ok) throw new Error(`操作失败：HTTP ${res.status}`);
+
+      await readSseStream(res, (payload) => {
+        setEvents((prev) => [...prev, payload]);
+        if (payload.node === "transform" && payload.status === "waiting_preview") {
+          setTransformPlan(payload.data.transform_plan);
+          setDataPreview(payload.data.data_preview || null);
+          setConfirmPhase(null);
+        } else if (payload.status === "error") {
           setStatus("error");
           setErrorMessage(payload.data?.message || "未知错误");
         }
@@ -449,8 +483,10 @@ export default function Home() {
         {status === "waiting_transform_confirm" && (
           <TransformPreview
             transformPlan={transformPlan}
+            dataPreview={dataPreview}
             onConfirm={handleRunPipeline}
             onReject={handleRejectTransform}
+            onRegenerate={handleRegenerateTransform}
           />
         )}
 

@@ -81,6 +81,7 @@ async def clarify_stream(session_id: str) -> StreamingResponse:
 class TransformConfirmRequest(BaseModel):
     approved: bool
     plan: list[dict] | None = None
+    action: str | None = None  # "regenerate" 时忽略 approved，强制重新生成 plan 后再次中断
 
 
 @router.get("/api/analyze/{session_id}/transform/preview")
@@ -117,9 +118,10 @@ async def transform_confirm(session_id: str, body: TransformConfirmRequest) -> S
             yield _sse("transform", "error", {"message": "当前会话不在等待清洗确认状态"})
             return
 
-        resume_value = (
-            {"action": "confirm", "plan": body.plan} if body.approved else {"action": "reject"}
-        )
+        if body.action == "regenerate":
+            resume_value = {"action": "regenerate"}
+        else:
+            resume_value = {"action": "confirm", "plan": body.plan} if body.approved else {"action": "reject"}
 
         try:
             for chunk in graph.stream(Command(resume=resume_value), config, stream_mode="updates"):
@@ -140,7 +142,13 @@ async def transform_confirm(session_id: str, body: TransformConfirmRequest) -> S
                     })
                 elif "__interrupt__" in chunk:
                     payload = chunk["__interrupt__"][0].value
-                    if "diagnosis" in payload:
+                    if "transform_plan" in payload:
+                        # regenerate 后 node3_preview self-loop 再次中断，推送新版 plan
+                        yield _sse("transform", "waiting_preview", {
+                            "transform_plan": payload["transform_plan"],
+                            "data_preview": payload.get("data_preview"),
+                        })
+                    elif "diagnosis" in payload:
                         # 拒绝清洗计划，回退到 node2_confirmation 重新做口径确认
                         yield _sse("confirmation", "waiting_confirmation", payload["diagnosis"])
                     else:

@@ -2,6 +2,32 @@
 
 ## 已完成
 
+- [x] P1 部署改造为"服务器建裸仓库+本地push+post-receive hook自动checkout"
+      （2026-06-19续4，已实际执行+发布）：服务器`/www`目录root拥有，初始化时
+      `sudo git init --bare /www/insight-agent.git` + `sudo chown -R
+      ubuntu:ubuntu`；`post-receive` hook只对`deploy`分支推送执行
+      `git --work-tree=/www/insight-agent --git-dir=/www/insight-agent.git
+      checkout -f deploy`，避免误推其他分支影响工作区；`scripts/deploy.sh`
+      改为`GIT_SSH_COMMAND=... git push ... HEAD:refs/heads/deploy --force`
+      触发hook，其余装依赖/构建/PM2重启/健康检查逻辑不变。手动push验证
+      commit hash与服务器工作区一致后，跑完整`bash scripts/deploy.sh`
+      端到端成功（构建+PM2重启+健康检查全部通过），同时把本次会话P0-1的
+      改动发布到了生产环境（`http://175.178.91.42:3001`，`/health`与
+      `/minerva`均200）。同步更新了memory `reference_deploy_script.md`。
+
+- [x] P0-1 结论报告持久化 + 结构化重写（2026-06-19续3）：`HypothesisNode`新增
+      `confidence_level`字段，`node_verification`验证后写回置信度到假设树节点；
+      `generate_conclusion_narrative`改输出结构化JSON（执行摘要/建议/注意事项），
+      不再让LLM直吐裸HTML，fallback降级也升级为基于各分组验证状态统计的详细
+      文案；新建`api/templates/minerva_conclusion.html.j2`（问题陈述卡片+按group
+      列假设状态/置信度徽标/验证摘要+三段式执行摘要，`.minerva-report`前缀CSS）；
+      `node_conclusion`渲染后落盘`session_dir/report.html`，`/api/report/{id}/html`
+      优先读磁盘文件不再依赖LangGraph内存state。P0-2：本地起服务+Playwright跑通
+      单表（验证1个假设）与多表关联+追问（验证2次同假设）两个场景，report.html
+      磁盘文件正确生成，置信度/verdict判定/结构化执行摘要内容均人工核查通过。
+      P2文档清理同步完成（STATUS.md删除重复过时项，DEBT.md标注WeasyPrint已废弃）。
+      详见CHANGELOG.md
+
 - [x] Minerva自动化测试修复Loop第1轮（2026-06-18续19）：Playwright驱动4个场景
       （单表/多表/假设验证追问/模糊输入边界）全流程测试，发现并修复严重bug
       ——假设树首次resume时被静默重新生成、验证结果错配到不同内容的节点
@@ -137,6 +163,14 @@
 
 ## 下次会话优先做
 
+### 本次会话（2026-06-19续4）已完成P1部署改造，已实际发布到生产环境
+
+**P3 明确延后，不在下次会话范围**：`api/render/` ECharts SSR图表渲染（用户已确认
+不做）、P2旧债Join阶段循环式改口径（工作量大）、P1旧债JoinPlanForm"让AI重新生成"
+按钮（模式同`TransformPreview`已有实现可抄，预计<30分钟，无需单独排期）。
+
+---
+
 ### Minerva 重构（2026-06-18 讨论确定，Step1-6 已全部完成，闭环跑通）
 
 产品方向：从"线性清洗→分析→报告流水线"转为"假设驱动的持续对话工具"
@@ -194,51 +228,38 @@
 按根因分三组，组C是关键发现：验证假设时模块从不知道在验证哪个假设，是#6/#7/#8/#9
 共同的根因，建议单独排期不要和体验小修混在一起。
 
-**组A：前端体验层（纯前端小改）**
-- [ ] **#1** 上传后反馈弱、文件选择无增删改：`pages/minerva.js`原生
-      `<input type="file" multiple>`，选完不能单独删除某个文件，上传中无loading态。
-      → 加已选文件列表+单删按钮，上传中显示spinner
-- [ ] **#4** 验证假设时前端无提醒：点"开始验证"后`sending`只disable按钮，没有可见
-      loading态，和#1是同一类问题。→ 验证中给节点加loading态，建议和#1一起做
-- [ ] **#5** 数据结果图表区域太小：`pages/minerva.js`右栏`width:280`+图表
-      `height:220`是写死的固定值。→ 右栏加宽，图表放大，或加"看大图"弹窗
+**组A：前端体验层（纯前端小改）—— 已完成（2026-06-19）**
+- [x] **#1** 上传后反馈弱、文件选择无增删改：`pages/minerva.js`已加已选文件列表+
+      单删按钮，上传中按钮文案"上传中..."+spinner
+- [x] **#4** 验证假设时前端无提醒：点"开始验证"后该节点显示"正在验证..."spinner
+- [x] **#5** 数据结果图表区域太小：右栏 280→420px，图表 220→340px
 
-**组B：流程语义不清晰（前后端都要改，中等改动）**
-- [ ] **#2** 表级问题"我已知晓"指向不明：勾选"命名风格不一致"类问题实际**什么都
-      不会做**——`ALLOWED_LLM_OPS`五种清洗op里没有一种能处理命名风格统一，勾不勾
-      结果完全一样，勾选目前唯一作用是让告警消失。→ 至少把文案改诚实（"忽略，
-      不做任何处理"），要不要真做命名规范清洗op待定
-- [ ] **#3** 退回重新确认口径后，选项没变但清洗计划变了：`node3_preview`每次进入
-      都重新调LLM生成plan（`api/core/graph.py`的`node3_preview`函数），LLM采样
-      随机性会导致**实际清洗结果不一致**（不只是展示文案变化，因为预览展示用的
-      op字典和真正执行用的是同一份）。→ 按`confirmed_schema`内容算指纹缓存，
-      指纹不变直接复用上次plan，不重新调LLM；指纹变了才重新生成；额外加"重新
-      生成"按钮覆盖用户主动要换一版的场景（resume协议加`action:"regenerate"`，
-      和P1的JoinPlanForm重新生成按钮是同一种模式）
-- [ ] **#3附带需求**：确认完口径+join方式后，清洗计划生成时应给真实**数据预览**
-      （不只是操作文字描述）。→ 生成plan后用已有的`run_transform`真的跑一遍
-      （写到临时预览路径，不是最终`cleaned_data_path`），把列名/类型/前N行样本/
-      清洗前后行数对比一起放进interrupt payload；`TransformPreview.js`渲染实际
-      数据表；用户编辑plan后加"更新预览"按钮重新跑（参照Step5增量上传的
-      preview/confirm两步模式）；这个行数对比机制顺便能在用户层面提前拦住
-      DEBT.md记过的"drop_duplicates误删99.5%数据"那类问题。建议和#3的指纹缓存
-      一起做（都在node3_preview这一环）
+**组B：流程语义不清晰（前后端都要改，中等改动）—— 已完成（2026-06-19）**
+- [x] **#2** 表级问题"我已知晓"指向不明：`ConfirmationForm.js`勾选框文案改为
+      "我已了解，忽略此问题、不做任何处理"，明确不会触发任何清洗操作
+- [x] **#3** 退回重新确认口径后清洗计划不稳定 + 缺真实数据预览：拆出
+      `node3_plan_init`（无interrupt）与`node3_preview`（只剩interrupt），彻底
+      消除"确认时LLM重新生成"的可能（根因与续19假设树resume重跑bug相同，
+      `interrupt()`前的代码会在每次resume时重跑）；按`confirmed_schema`指纹
+      缓存plan；新增"让AI重新生成"按钮（`action:"regenerate"`）；新增
+      `build_data_preview()`真实跑一遍plan产出行列数对比+样例数据，
+      `TransformPreview.js`渲染为表格。脚本验证：连续多次resume后
+      shown plan == executed plan。详见CHANGELOG.md
 
-**组C：核心架构缺口（同根因，建议单独排期）**
-- [ ] **#6/#7/#9** 验证假设时无推荐方案、结论和假设内容脱节、不同假设撞车出
-      雷同结论：根因是`node_verification`（`api/core/graph.py`）调用
-      `module.run(df, {})`时config传空字典，分析模块（如`trend_insight`）的
-      `select_numeric_metric()`只能"自动挑第一个非维度型数值列"，**完全不知道
-      正在验证哪个假设**；`_generate_narrative`（`node5_report.py`）同样只喂
-      metrics，没喂假设文本/问题陈述卡片，所以写不出"数据如何support/refute该
-      假设"的论证，不同假设也就跑出同一份数据同一个结论。→ 验证时把假设
-      label/group传给模块选列逻辑（或让LLM建议用哪个模块+哪些列，取代现在5选1
-      盲选下拉框）；`_generate_narrative`prompt加入假设文本+问题卡片，要求明确
-      写support/refute关系
-- [ ] **#8** 假设树不满足MECE（供给侧/需求侧出现本质重叠的假设）：
-      `generate_initial_ops`（`api/nodes/hypothesis_tree.py`）的prompt完全没要求
-      互斥穷尽，纯靠LLM一次性生成。→ prompt加MECE约束，生成后可加一道去重/
-      自检步骤
+**组C：核心架构缺口（同根因）—— 已完成（2026-06-19续）**
+- [x] **#6/#7/#9** 验证假设时无推荐方案、结论和假设内容脱节、不同假设撞车出
+      雷同结论：新增`suggest_verification_config`（`api/nodes/hypothesis_tree.py`），
+      验证前让LLM按假设文本从该模块允许的config key中选列（替代`module.run(df, {})`
+      空字典盲选）；`_generate_narrative`（`node5_report.py`）新增可选
+      `hypothesis_label`/`problem_card`参数，要求明确写support/refute/inconclusive
+      并输出`verdict`字段；`node_verification`状态判定改为优先按`verdict`映射
+      （support→verified/refute→rejected/inconclusive→partial），LLM不可用时退回
+      旧的置信度规则。详见CHANGELOG.md，本地脚本验证LLM返回结构正确，
+      未跑Playwright端到端（建议下次会话补回归）。
+- [x] **#8** 假设树不满足MECE（供给侧/需求侧出现本质重叠的假设）：
+      `generate_initial_ops`prompt加MECE约束；新增`generate_dedupe_ops`，初始树
+      生成后追加一次LLM自检识别本质重叠假设并合并（`merge_node`），无重叠时
+      不动。详见CHANGELOG.md。
 
 ### 旧路线遗留（Minerva之外，不阻塞，延后）
 
@@ -353,13 +374,6 @@
       路由；`node3_transform.py` 固定 `pd.merge()` 执行 join；`node4_analysis.py`
       优先读 `merged_data_path`；`pages/index.js` 新增 join 确认状态与时间线节点；
       `components/JoinPlanForm.js` 新建 join 方案编辑组件
-
-- [ ] Node0/Node3预览/Node6 接入 `api/core/graph.py`（当前为独立路由+
-      `session_state.json`，需设计 `clarification_history`/
-      `transform_plan`/`followup_history` 如何随主流程checkpoint流转，
-      `node3_preview(state)`的`interrupt()`接入后需打通与
-      `node2_confirmation`/`node3_transform`的衔接，approved=false时
-      流程走向待与前端交互一起确定）
 
 ### 前端
 - [x] 文件上传组件（2026-06-15，Step①）

@@ -74,7 +74,9 @@ function classifyInterrupt(payload) {
   if (payload.join_plan) {
     return { phase: "join_plan", joinPlan: payload.join_plan, tableColumns: payload.table_columns || {} };
   }
-  if (payload.transform_plan) return { phase: "transform", transformPlan: payload.transform_plan };
+  if (payload.transform_plan) {
+    return { phase: "transform", transformPlan: payload.transform_plan, dataPreview: payload.data_preview || null };
+  }
   return { phase: "unknown", raw: payload };
 }
 
@@ -91,6 +93,7 @@ export default function Minerva() {
   const [joinPlan, setJoinPlan] = useState(null);
   const [tableColumns, setTableColumns] = useState({});
   const [transformPlan, setTransformPlan] = useState([]);
+  const [dataPreview, setDataPreview] = useState(null);
   const [tree, setTree] = useState([]);
   const [lastVerification, setLastVerification] = useState(null);
   const [conclusionHtml, setConclusionHtml] = useState("");
@@ -98,6 +101,8 @@ export default function Minerva() {
   const [files, setFiles] = useState([]);
   const [verifyTarget, setVerifyTarget] = useState(null);
   const [verifyModule, setVerifyModule] = useState(MODULE_OPTIONS[0].name);
+  const [verifyingNodeId, setVerifyingNodeId] = useState(null);
+  const [uploading, setUploading] = useState(false);
 
   const startedRef = useRef(false);
 
@@ -124,6 +129,7 @@ export default function Minerva() {
       addMessage("ai", "已生成多表关联方案，请确认。");
     } else if (classified.phase === "transform") {
       setTransformPlan(classified.transformPlan);
+      setDataPreview(classified.dataPreview);
       addMessage("ai", "已生成清洗计划，请确认。");
     } else if (classified.phase === "hypothesis_tree") {
       setTree(classified.tree);
@@ -199,18 +205,25 @@ export default function Minerva() {
 
   const handleUpload = () => {
     if (files.length === 0) return;
+    setUploading(true);
     withSending(async () => {
-      const formData = new FormData();
-      for (const f of files) formData.append("files", f);
-      formData.append("session_id", sessionId);
-      const res = await fetch(`${API_URL}/api/upload`, { method: "POST", body: formData });
-      if (!res.ok) throw new Error(`上传失败：HTTP ${res.status}`);
-      addMessage("ai", "数据已上传，正在诊断...");
-      // LangGraph 把 Command(resume=None) 当作"未提供resume值"而报错
-      // （EmptyInputError），node_awaiting_data 本身不使用该值，传任意真值即可
-      await resume(true);
+      try {
+        const formData = new FormData();
+        for (const f of files) formData.append("files", f);
+        formData.append("session_id", sessionId);
+        const res = await fetch(`${API_URL}/api/upload`, { method: "POST", body: formData });
+        if (!res.ok) throw new Error(`上传失败：HTTP ${res.status}`);
+        addMessage("ai", "数据已上传，正在诊断...");
+        // LangGraph 把 Command(resume=None) 当作"未提供resume值"而报错
+        // （EmptyInputError），node_awaiting_data 本身不使用该值，传任意真值即可
+        await resume(true);
+      } finally {
+        setUploading(false);
+      }
     });
   };
+
+  const removeFile = (idx) => setFiles((prev) => prev.filter((_, i) => i !== idx));
 
   const handleConfirmSchema = (confirmedSchema) =>
     withSending(async () => {
@@ -237,13 +250,25 @@ export default function Minerva() {
       await resume({ action: "reject" });
     });
 
-  const handleVerify = (nodeId, moduleName) =>
+  const handleRegenerateTransform = () =>
     withSending(async () => {
-      const label = MODULE_OPTIONS.find((m) => m.name === moduleName)?.label || moduleName;
-      addMessage("user", `验证假设 ${nodeId}（${label}）`);
-      setVerifyTarget(null);
-      await resume({ action: "verify", node_id: nodeId, module: moduleName });
+      addMessage("user", "让AI重新生成清洗计划");
+      await resume({ action: "regenerate" });
     });
+
+  const handleVerify = (nodeId, moduleName) => {
+    setVerifyingNodeId(nodeId);
+    withSending(async () => {
+      try {
+        const label = MODULE_OPTIONS.find((m) => m.name === moduleName)?.label || moduleName;
+        addMessage("user", `验证假设 ${nodeId}（${label}）`);
+        setVerifyTarget(null);
+        await resume({ action: "verify", node_id: nodeId, module: moduleName });
+      } finally {
+        setVerifyingNodeId(null);
+      }
+    });
+  };
 
   const handleConclude = () =>
     withSending(async () => {
@@ -303,7 +328,12 @@ export default function Minerva() {
                             <div style={styles.treeNodeSummary}>{n.verification_summary}</div>
                           )}
                           {phase === "hypothesis_tree" &&
-                            (verifyTarget === n.id ? (
+                            (verifyingNodeId === n.id ? (
+                              <div style={styles.verifyPicker}>
+                                <span className="ia-spinner" />
+                                <span style={styles.verifyingLabel}>正在验证...</span>
+                              </div>
+                            ) : verifyTarget === n.id ? (
                               <div style={styles.verifyPicker}>
                                 <select
                                   value={verifyModule}
@@ -383,11 +413,37 @@ export default function Minerva() {
 
           <div style={styles.actionArea}>
             {phase === "awaiting_data" && (
-              <div style={styles.uploadRow}>
-                <input type="file" accept=".csv" multiple onChange={(e) => setFiles(Array.from(e.target.files))} />
-                <button className="btn btn-primary" onClick={handleUpload} disabled={files.length === 0 || sending}>
-                  上传并开始分析
-                </button>
+              <div>
+                <div style={styles.uploadRow}>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    multiple
+                    disabled={uploading}
+                    onChange={(e) => setFiles((prev) => [...prev, ...Array.from(e.target.files)])}
+                  />
+                  <button className="btn btn-primary" onClick={handleUpload} disabled={files.length === 0 || sending}>
+                    {uploading ? "上传中..." : "上传并开始分析"}
+                  </button>
+                  {uploading && <span className="ia-spinner" />}
+                </div>
+                {files.length > 0 && (
+                  <ul style={styles.fileList}>
+                    {files.map((f, i) => (
+                      <li key={`${f.name}-${i}`} style={styles.fileListItem}>
+                        <span style={styles.fileName}>{f.name}</span>
+                        <button
+                          className="btn btn-outline"
+                          style={styles.fileRemoveBtn}
+                          disabled={uploading}
+                          onClick={() => removeFile(i)}
+                        >
+                          删除
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
 
@@ -400,7 +456,13 @@ export default function Minerva() {
             )}
 
             {phase === "transform" && (
-              <TransformPreview transformPlan={transformPlan} onConfirm={handleConfirmTransform} onReject={handleRejectTransform} />
+              <TransformPreview
+                transformPlan={transformPlan}
+                dataPreview={dataPreview}
+                onConfirm={handleConfirmTransform}
+                onReject={handleRejectTransform}
+                onRegenerate={handleRegenerateTransform}
+              />
             )}
 
             {(phase === "clarify" || phase === "hypothesis_tree") && (
@@ -434,7 +496,7 @@ export default function Minerva() {
             <div>
               <div className="ia-card" style={styles.resultCard}>
                 <div style={styles.resultLabel}>{lastVerification.category}</div>
-                {lastVerification.chart && <ReactECharts option={lastVerification.chart} style={{ height: 220 }} />}
+                {lastVerification.chart && <ReactECharts option={lastVerification.chart} style={{ height: 340 }} />}
               </div>
               <div className="ia-card" style={styles.resultCard}>
                 <div style={styles.resultLabel}>置信度：{lastVerification.confidence?.level}</div>
@@ -482,7 +544,7 @@ const styles = {
   body: { flex: 1, display: "flex", overflow: "hidden" },
   left: { width: 280, borderRight: "1px solid #e4e7ed", padding: 16, overflowY: "auto", flexShrink: 0, background: "#fafbfc" },
   center: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 },
-  right: { width: 280, borderLeft: "1px solid #e4e7ed", padding: 16, overflowY: "auto", flexShrink: 0, background: "#fafbfc" },
+  right: { width: 420, borderLeft: "1px solid #e4e7ed", padding: 16, overflowY: "auto", flexShrink: 0, background: "#fafbfc" },
   panelTitle: { fontSize: "0.75rem", color: "#909399", letterSpacing: 1, textTransform: "uppercase", marginBottom: 14 },
   mapSection: { marginBottom: 20 },
   mapSectionHead: { display: "flex", alignItems: "center", gap: 6, marginBottom: 6 },
@@ -522,6 +584,21 @@ const styles = {
   },
   actionArea: { borderTop: "1px solid #e4e7ed", padding: "14px 24px", background: "#fff" },
   uploadRow: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
+  fileList: { listStyle: "none", margin: "10px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 6 },
+  fileListItem: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    background: "#f5f7fa",
+    border: "1px solid #e4e7ed",
+    borderRadius: 6,
+    padding: "6px 10px",
+    fontSize: "0.82rem",
+  },
+  fileName: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  fileRemoveBtn: { fontSize: "0.72rem", padding: "2px 8px", flexShrink: 0 },
+  verifyingLabel: { fontSize: "0.75rem", color: "#e6a23c", marginLeft: 4 },
   inputRow: { display: "flex", gap: 10 },
   input: { flex: 1, border: "1px solid #e4e7ed", borderRadius: 6, padding: "10px 14px", fontSize: "0.88rem", outline: "none" },
   placeholder: { fontSize: "0.8rem", color: "#c0c4cc", lineHeight: 1.6 },

@@ -278,6 +278,17 @@ def _execute_join_plan(df: pd.DataFrame, join_plan: dict, raw_data_path: str) ->
     return df
 
 
+def _apply_plan(df: pd.DataFrame, plan: list[dict]) -> pd.DataFrame:
+    """按固定 op_* 函数集合依次执行 plan，单步失败跳过不中止（与原 run_transform 行为一致）。
+    供 run_transform 与 node3_preview 的数据预览复用，避免执行逻辑出现第二处定义。"""
+    for op in plan:
+        try:
+            df = OP_FUNCTIONS[op["op"]](df, op)
+        except Exception as e:
+            print(f"清洗操作 {op.get('op')} 执行失败，跳过: {e}")
+    return df
+
+
 def run_transform(
     raw_data_path: str,
     confirmed_schema: dict,
@@ -308,11 +319,7 @@ def run_transform(
         llm_ops, llm_available = _llm_supplementary_ops(confirmed_schema, deterministic_ops)
         plan = _order_plan(deterministic_ops + llm_ops)
 
-    for op in plan:
-        try:
-            df = OP_FUNCTIONS[op["op"]](df, op)
-        except Exception as e:
-            print(f"清洗操作 {op.get('op')} 执行失败，跳过: {e}")
+    df = _apply_plan(df, plan)
 
     # 写入 cleaned_data_path（始终写入，向后兼容）
     df.to_parquet(cleaned_data_path, index=False)

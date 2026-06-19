@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const OP_LABELS = {
   rename_column: "重命名",
@@ -86,9 +86,18 @@ function EditableValue({ step, onChange }) {
 // Step4 清洗计划预览确认：展示Node3生成的transform_plan，支持删除/微调单条操作后
 // 再确认执行；也可整体退回上一步重新做口径确认（不再是死路，回退后流程会
 // 重新生成清洗计划）。
-export default function TransformPreview({ transformPlan, onConfirm, onReject }) {
+export default function TransformPreview({ transformPlan, dataPreview, onConfirm, onReject, onRegenerate }) {
   const [steps, setSteps] = useState(() => transformPlan || []);
   const [submitting, setSubmitting] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+
+  // regenerate 后父组件传入新的 transformPlan（同一组件实例不会重新挂载），
+  // 需要同步刷新本地可编辑副本，否则界面会停留在重新生成前的旧版方案
+  useEffect(() => {
+    setSteps(transformPlan || []);
+    setRegenerating(false);
+    setSubmitting(false);
+  }, [transformPlan]);
 
   const updateStep = (idx, patch) => {
     setSteps((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
@@ -108,11 +117,19 @@ export default function TransformPreview({ transformPlan, onConfirm, onReject })
     onReject?.();
   };
 
+  const handleRegenerate = () => {
+    setRegenerating(true);
+    onRegenerate?.();
+  };
+
+  const rowDelta = dataPreview ? dataPreview.after_rows - dataPreview.before_rows : null;
+
   return (
     <div className="ia-card">
       <h2 style={styles.sectionTitle}>清洗计划预览</h2>
       <p style={styles.subtitle}>
-        可删除不需要的操作、调整填充值/类型/换算系数；如果问题源于字段口径本身，可退回上一步重新确认。
+        可删除不需要的操作、调整填充值/类型/换算系数；如果问题源于字段口径本身，可退回上一步重新确认；
+        对生成的方案不满意也可让AI重新生成一版。
       </p>
 
       {steps.length === 0 && (
@@ -139,11 +156,52 @@ export default function TransformPreview({ transformPlan, onConfirm, onReject })
         </ul>
       )}
 
+      {dataPreview && (
+        <div style={styles.previewBlock}>
+          <div style={styles.previewSummary}>
+            清洗前 {dataPreview.before_rows} 行 / {dataPreview.before_columns} 列 → 清洗后{" "}
+            {dataPreview.after_rows} 行 / {dataPreview.after_columns.length} 列
+            {rowDelta !== null && rowDelta !== 0 && (
+              <span style={rowDelta < 0 ? styles.rowDeltaWarn : styles.rowDeltaInfo}>
+                {" "}（{rowDelta < 0 ? `减少${-rowDelta}行` : `增加${rowDelta}行`}）
+              </span>
+            )}
+          </div>
+          {dataPreview.sample_rows?.length > 0 && (
+            <div style={styles.tableWrap}>
+              <table style={styles.previewTable}>
+                <thead>
+                  <tr>
+                    {dataPreview.after_columns.map((c) => (
+                      <th key={c} style={styles.previewTh}>{c}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {dataPreview.sample_rows.map((row, i) => (
+                    <tr key={i}>
+                      {dataPreview.after_columns.map((c) => (
+                        <td key={c} style={styles.previewTd}>{row[c] === null || row[c] === undefined ? "" : String(row[c])}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={styles.buttonRow}>
-        <button className="btn btn-primary" onClick={handleConfirm} disabled={submitting}>
+        <button className="btn btn-primary" onClick={handleConfirm} disabled={submitting || regenerating}>
           {submitting ? "提交中..." : "确认执行"}
         </button>
-        <button className="btn btn-ghost" onClick={handleReject} disabled={submitting}>
+        {onRegenerate && (
+          <button className="btn btn-outline" onClick={handleRegenerate} disabled={submitting || regenerating}>
+            {regenerating ? "生成中..." : "让AI重新生成"}
+          </button>
+        )}
+        <button className="btn btn-ghost" onClick={handleReject} disabled={submitting || regenerating}>
           退回修改口径
         </button>
       </div>
@@ -207,5 +265,39 @@ const styles = {
     display: "flex",
     gap: "0.8rem",
     marginTop: "1rem",
+  },
+  previewBlock: {
+    marginTop: "1rem",
+    paddingTop: "0.8rem",
+    borderTop: "1px solid #f2f3f5",
+  },
+  previewSummary: {
+    fontSize: "0.85rem",
+    color: "#606266",
+    marginBottom: "0.5rem",
+  },
+  rowDeltaWarn: { color: "#f56c6c", fontWeight: 600 },
+  rowDeltaInfo: { color: "#909399" },
+  tableWrap: {
+    overflowX: "auto",
+    border: "1px solid #f2f3f5",
+    borderRadius: "0.4rem",
+  },
+  previewTable: {
+    borderCollapse: "collapse",
+    width: "100%",
+    fontSize: "0.78rem",
+  },
+  previewTh: {
+    textAlign: "left",
+    padding: "0.4rem 0.6rem",
+    background: "#fafbfc",
+    borderBottom: "1px solid #e4e7ed",
+    whiteSpace: "nowrap",
+  },
+  previewTd: {
+    padding: "0.35rem 0.6rem",
+    borderBottom: "1px solid #f2f3f5",
+    whiteSpace: "nowrap",
   },
 };

@@ -4,6 +4,154 @@
 
 ---
 
+## 2026-06-19续4（P1 部署改造：服务器裸仓库 + post-receive hook）
+
+- 根因/动机：此前部署用`git archive HEAD | ssh ... tar -x`整包传输，服务器端
+  目录不是git repo，丢失历史，不便回滚/diff；改造目标是保留服务器端git历史，
+  同时仍不要求服务器直连GitHub（已知会因GFW间歇性干扰超时）。
+- 服务器一次性初始化（SSH操作，执行前已与用户二次确认）：`/www`目录root拥有，
+  用`sudo git init --bare /www/insight-agent.git`创建裸仓库后
+  `sudo chown -R ubuntu:ubuntu`，使后续`ubuntu`用户push不需要sudo。
+- `post-receive` hook（`/www/insight-agent.git/hooks/post-receive`）：从stdin
+  读取推送的ref，只对`deploy`分支执行
+  `git --work-tree=/www/insight-agent --git-dir=/www/insight-agent.git
+  checkout -f deploy`，避免误推其他分支影响线上工作区。
+- `scripts/deploy.sh`：把`git archive | ssh ... tar -x`换成
+  `GIT_SSH_COMMAND="ssh -F $SSH_CONFIG" git push "${REMOTE}:${REMOTE_BARE_REPO}"
+  "${REF}:refs/heads/deploy" --force`，其余装后端/前端依赖、`pnpm build`、
+  `pm2 restart`、健康检查逻辑不变。
+- 验证：先手动`git push`确认服务器`git rev-parse HEAD`与本地一致、工作区只剩
+  历史遗留的未跟踪文件（如`api/nodes/upload.py`旧文件，与本次改动无关）；再跑
+  完整`bash scripts/deploy.sh`走通构建+PM2重启+健康检查，顺带把本次会话P0-1
+  的改动发布到生产环境（`http://175.178.91.42:3001`），`/health`与`/minerva`
+  均返回200。
+- 同步更新memory `reference_deploy_script.md`里的部署方式说明。
+
+---
+
+## 2026-06-19续3（P0-1 结论报告持久化 + 结构化重写）
+
+- 根因：`node_conclusion`生成的`report_html`只写进LangGraph内存state从未落盘，
+  进程重启/checkpoint丢失后报告拿不到；`generate_conclusion_narrative`让LLM直接
+  吐裸HTML，没有"结论-数据支撑-建议+置信度"结构，且无法复用统一样式。
+- `api/core/schema.py`：`HypothesisNode`新增`confidence_level`字段，
+  `HypothesisTreeOp`的`update_summary`新增`confidence_level`可选字段。
+- `api/core/graph.py` `node_verification`：`update_summary` op同时写回
+  `confidence["level"]`到假设树节点（之前置信度只存在`last_verification`里，
+  不会持久化到树上）。
+- `api/nodes/hypothesis_tree.py` `generate_conclusion_narrative`：改为输出
+  结构化JSON（`executive_summary`/`recommendation`/`caveats`），不再让LLM
+  直吐HTML；fallback降级也从"AI解读暂不可用"升级为基于各分组验证状态
+  （已验证/部分验证/已排除/待验证数量及标签）统计的详细默认文案。
+- 新建`api/templates/minerva_conclusion.html.j2`：问题陈述卡片 + 按group列出
+  每条假设的状态/置信度徽标/验证摘要 + 执行摘要/建议/注意事项三段文字，
+  CSS统一加`.minerva-report`前缀避免污染全局样式。
+- `api/core/paths.py`新增`report_html_path(session_id)`，`node_conclusion`
+  渲染后写入`session_dir/report.html`磁盘文件（同时仍写`state.report_html`
+  保持兼容）。
+- `api/routes/analyze.py` `/api/report/{session_id}/html`：优先读磁盘文件，
+  没有才回退读LangGraph state（旧版线性流程报告仍只在state中）。
+- 本地起服务+Playwright跑通单表场景（s1，验证1个假设）与多表关联+追问场景
+  （s3，关联4表后验证2次同一假设、追问深挖均通过），report.html磁盘文件
+  正确生成，置信度徽标/verdict判定的rejected状态/结构化执行摘要均渲染正常，
+  人工核查内容与实际验证结果一致（详见`test_output/minerva_scenario.js`，
+  复用已有脚本，未新建）。
+
+### P2 文档清理
+
+- `STATUS.md`删除"待开始 > 后端"区块中重复过时的
+  "Node0/Node3预览/Node6 接入`api/core/graph.py`"未完成项（与2026-06-16已完成
+  的同名条目重复，是过时残留）。
+- `DEBT.md`将WeasyPrint PDF验证标注为"已废弃，除非以后明确要做PDF导出否则
+  不再保留为TODO"（产品方向已改为HTML报告直出，原TODO与现状矛盾）。
+
+---
+
+## 2026-06-19续（Minerva体验反馈组C：假设验证脱节 + 假设树MECE）
+
+### #6/#7/#9 验证假设时模块不知道在验证哪个假设
+
+- 根因：`node_verification`（`api/core/graph.py`）此前调用`module.run(df, {})`，
+  config永远是空字典，各模块的列选择逻辑（如`trend_insight`的`select_numeric_metric`）
+  只能"自动挑第一个非维度型数值列"，与假设文本完全无关；`_generate_narrative`
+  （`api/nodes/node5_report.py`）也只喂metrics，不知道在验证什么假设，因此写不出
+  "数据是否支持该假设"的论证，不同假设容易跑出同一份盲选列产生的雷同结论。
+- 新增`suggest_verification_config`（`api/nodes/hypothesis_tree.py`）：验证前让LLM
+  从该模块允许的config key（`MODULE_CONFIG_KEYS`，按模块区分如
+  `trend_insight`→`date_column`/`value_column`，`attribution`→`dependent_column`/
+  `independent_columns`）里选最贴合假设文本的列，列名校验只接受df中真实存在的列，
+  LLM不可用/选不出来时返回空dict退回各模块原有自动检测，不阻断。
+- `_generate_narrative`新增可选`hypothesis_label`/`problem_card`参数：传入假设文本时
+  prompt要求明确写出数据对该假设是支持/不支持/部分支持，并额外输出
+  `verdict`(support/refute/inconclusive)字段；不传时（`run_report`/`node6_followup`
+  两个旧调用点）行为完全不变。
+- `node_verification`：状态从"只看置信度高低判定verified/partial"改为优先按
+  LLM给出的`verdict`映射（support→verified，refute→rejected，inconclusive→partial），
+  LLM不可用时才退回旧的置信度规则。`rejected`状态前端`pages/minerva.js`此前已支持
+  渲染（✕红色），未改前端。
+
+### #8 假设树不满足MECE
+
+- `generate_initial_ops`系统prompt新增MECE约束（不同分组假设不能是同一因果机制换个
+  说法）。
+- 新增`generate_dedupe_ops`（`api/nodes/hypothesis_tree.py`）：初始树生成后追加一次
+  LLM自检，识别本质重叠（同因果机制、表述不同）的假设节点并输出`merge_node`操作合并，
+  没有重叠时返回空列表。`node_hypothesis_init`（`api/core/graph.py`）依次调用
+  `generate_initial_ops`→`generate_dedupe_ops`，仍是普通return提交，不在新拆出的
+  interrupt前节点里做非幂等调用（沿用`[[project_langgraph_interrupt_rerun_gotcha]]`
+  的教训）。
+
+验证：`suggest_verification_config`/`generate_dedupe_ops`/`_generate_narrative`
+（带hypothesis_label）三个函数本地脚本调用，确认真实LLM返回结构正确
+（config列名校验通过、dedupe无重叠时返回空、verdict正确返回inconclusive），
+均未跑Playwright端到端（下次会话建议补一轮真实假设验证场景回归）。
+
+---
+
+## 2026-06-19（Minerva体验反馈组A+组B落地：前端小改 + 清洗计划缓存/数据预览）
+
+### 组A：前端体验小改（`pages/minerva.js`）
+
+- **#1** 上传文件支持多次累加选择 + 单文件删除按钮，上传中显示"上传中..."文案+spinner
+- **#4** 点击"开始验证"后该假设节点显示"正在验证..."spinner，替代选择器（此前点击后
+  只是disable按钮，无可见反馈）
+- **#5** 右侧数据结果面板宽度280→420px，图表高度220→340px
+
+### 组B：流程语义修复（前后端，#2/#3）
+
+- **#2** `ConfirmationForm.js` 表级问题确认勾选框文案改为"我已了解，忽略此问题、不做
+  任何处理"，明确告知该勾选不会触发任何清洗操作（之前文案"忽略此问题继续分析"仍可能
+  让人以为会被处理）
+- **#3 核心bug**：`node3_preview`（`api/core/graph.py`）退回重新确认口径后，即使字段
+  口径选项完全没变，清洗计划也会变——根因是LLM调用写在`interrupt()`之前，而LangGraph
+  恢复interrupt时会把节点函数从头重跑一遍，等于每次"确认/拒绝/重新生成"操作都隐式触发
+  一次新的LLM采样，**用户最终确认执行的plan和预览时看到的plan可能不是同一份**（与
+  续19修复的假设树resume重跑bug同根因，见`[[project_langgraph_state_gotcha]]`）。
+  - 拆出`node3_plan_init`（无interrupt，只在图真正路由进入时执行一次）与
+    `node3_preview`（只剩interrupt本身，读已提交的`transform_plan_pending`），
+    彻底消除"确认时重新生成"的可能性（已用脚本验证：连续3次resume后`shown plan ==
+    executed plan`）
+  - 按`confirmed_schema`内容算SHA256指纹缓存生成结果（`schema_fingerprint`，
+    `api/nodes/node3_preview.py`），指纹不变时复用缓存不重新调LLM；新增
+    `transform_plan_cache_key`/`transform_plan_cache`两个state字段
+  - 新增"让AI重新生成"按钮（resume协议`{"action":"regenerate"}`），强制丢弃缓存
+    重新生成一版，再次进入预览中断
+  - 清洗计划预览新增**真实数据预览**：`build_data_preview()`在raw数据上真的跑一遍
+    plan（不写入最终`cleaned_data_path`），返回清洗前后行列数对比+前5行样例数据；
+    `TransformPreview.js`渲染为表格+行数变化提示（含异常减少行数的红色警示），
+    取代此前只有操作文字描述的预览
+  - `node3_transform.py`抽出`_apply_plan()`公共函数，`run_transform`与预览复用同一份
+    执行逻辑，避免出现第二处op分发实现
+  - 旧版线性流程（`pages/index.js`/`api/routes/v03.py`）同步获得真实数据预览展示与
+    "让AI重新生成"按钮（同一套后端接口，前端`TransformConfirmRequest`新增`action`字段）
+
+### 待续
+
+组C（#6/#7/#8/#9，验证假设时模块不知道在验证哪个假设的核心架构缺口）按计划单独排期，
+本轮未做。
+
+---
+
 ## 2026-06-18 续19（Minerva自动化测试修复Loop第1轮，修复假设树resume重跑bug）
 
 ### 测试方式

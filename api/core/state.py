@@ -25,6 +25,10 @@ class AnalysisState(TypedDict):
     transform_plan: list
     transform_approved: bool
     transform_preview_action: str
+    transform_plan_cache_key: str  # confirmed_schema 指纹，命中则跳过 LLM 重新生成（见 STATUS.md #3）
+    transform_plan_cache: list  # 上次按该指纹生成的 plan（未经用户编辑的原始版本）
+    transform_plan_pending: list  # node3_plan_init 写入，供 node3_preview 的 interrupt() 读取展示
+    transform_data_preview: dict  # node3_plan_init 写入的真实数据预览（行列数对比+样例行）
     followup_history: list
     followup_done: bool
 

@@ -94,7 +94,7 @@ export default function ConfirmationForm({ diagnosis, initialSchema, onSubmit, s
                     checked={resolvedIssues.has(issue)}
                     onChange={() => toggleResolvedIssue(issue)}
                   />{" "}
-                  我已了解，忽略此问题继续分析
+                  我已了解，忽略此问题、不做任何处理
                 </label>
               </li>
             ))}

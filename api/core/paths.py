@@ -22,3 +22,7 @@ def merged_data_path(session_id: str) -> Path:
 
 def report_pdf_path(session_id: str) -> Path:
     return session_dir(session_id) / "report.pdf"
+
+
+def report_html_path(session_id: str) -> Path:
+    return session_dir(session_id) / "report.html"

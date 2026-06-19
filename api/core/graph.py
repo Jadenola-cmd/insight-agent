@@ -5,6 +5,9 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.types import interrupt
 
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+from api.core.paths import report_html_path
 from api.core.state import AnalysisState
 from api.modules.registry import default_registry
 from api.modules.visualization import VisualizationModule
@@ -12,12 +15,14 @@ from api.nodes.hypothesis_tree import (
     apply_ops,
     generate_chat_ops,
     generate_conclusion_narrative,
+    generate_dedupe_ops,
     generate_initial_ops,
+    suggest_verification_config,
 )
 from api.nodes.node0_clarification import run_clarification
 from api.nodes.node1_diagnosis import run_diagnosis
 from api.nodes.node2_confirmation import run_node2_confirmation
-from api.nodes.node3_preview import describe_plan, generate_transform_plan
+from api.nodes.node3_preview import build_data_preview, describe_plan, generate_transform_plan, schema_fingerprint
 from api.nodes.node3_transform import run_transform
 from api.nodes.node4_analysis import run_analysis
 from api.nodes.node5_report import _compute_confidence, _generate_narrative, run_report
@@ -97,18 +102,56 @@ def node2_confirmation(state: AnalysisState) -> dict:
     return run_node2_confirmation(state)
 
 
-def node3_preview(state: AnalysisState) -> dict:
-    """生成清洗 plan 并 interrupt 等待用户确认。
+def node3_plan_init(state: AnalysisState) -> dict:
+    """生成（或复用缓存）清洗 plan + 真实数据预览，写入 checkpoint，不含 interrupt()。
 
-    resume 值为 {"action": "confirm"|"reject", "plan": [...]（仅 confirm 时使用）}：
+    必须与 node3_preview（含 interrupt）拆成两个节点：LangGraph 的 interrupt() 恢复
+    时会把节点函数从头重新执行一遍（只是恢复点跳过暂停直接拿到 resume 值），如果
+    LLM 调用写在 interrupt() 之前，每次恢复都会重新调一次 LLM——"确认执行"时真正
+    用的 plan 就可能和用户刚看到的预览不是同一份（与假设树初始化的 resume 重跑坑
+    同根因，见 [[project_langgraph_state_gotcha]]）。拆出本节点后它只在图真正路由
+    进入时执行一次，不会被下游 interrupt 的恢复连带重跑。
+
+    按 confirmed_schema 内容指纹缓存：口径退回重新提交但内容未变时直接复用缓存，
+    不重新调用 LLM（LLM 采样随机性曾导致前后两次结果不一致，见 STATUS.md #3）。
+    """
+    schema = state["user_confirmations"]
+    fingerprint = schema_fingerprint(schema)
+    cache_hit = state.get("transform_plan_cache_key") == fingerprint and state.get("transform_plan_cache")
+    force_regenerate = state.get("transform_preview_action") == "regenerate"
+
+    if cache_hit and not force_regenerate:
+        plan = state["transform_plan_cache"]
+    else:
+        plan, _ = generate_transform_plan(schema)
+
+    described = describe_plan(plan)
+    data_preview = build_data_preview(state["raw_data_path"], plan, state.get("confirmed_join_plan"))
+    return {
+        "current_node": "node3_plan_init",
+        "transform_plan_cache_key": fingerprint,
+        "transform_plan_cache": plan,
+        "transform_plan_pending": described,
+        "transform_data_preview": data_preview,
+    }
+
+
+def node3_preview(state: AnalysisState) -> dict:
+    """interrupt 等待用户确认，只读 node3_plan_init 已写入 checkpoint 的 plan/预览。
+
+    resume 值为 {"action": "confirm"|"reject"|"regenerate", "plan": [...]（仅 confirm 时使用）}：
     - confirm：plan 为前端可能编辑过（删除/修改某些步骤）的最终版本，写入
       transform_plan 供 node3_transform 直接执行（不再重新生成）
     - reject：不写 transform_plan，路由回 node2_confirmation 让用户重新确认口径
+    - regenerate：路由回 node3_plan_init 强制重新生成新版 plan
     """
-    plan, llm_available = generate_transform_plan(state["user_confirmations"])
-    described = describe_plan(plan)
-    decision = interrupt({"transform_plan": described})
+    described = state["transform_plan_pending"]
+    decision = interrupt({"transform_plan": described, "data_preview": state["transform_data_preview"]})
     action = decision.get("action", "confirm")
+
+    if action == "regenerate":
+        return {"current_node": "node3_preview", "transform_preview_action": "regenerate"}
+
     final_plan = decision.get("plan") if action == "confirm" and decision.get("plan") else described
     return {
         "current_node": "node3_preview",
@@ -119,7 +162,10 @@ def node3_preview(state: AnalysisState) -> dict:
 
 
 def _route_after_preview(state: AnalysisState) -> str:
-    if state.get("transform_preview_action") == "reject":
+    action = state.get("transform_preview_action")
+    if action == "regenerate":
+        return "node3_plan_init"
+    if action == "reject":
         return "node2_confirmation"
     return "node3_transform"
 
@@ -234,7 +280,9 @@ def node_hypothesis_init(state: AnalysisState) -> dict:
     """
     tree = state.get("hypothesis_tree") or []
     if not tree:
-        tree = apply_ops(tree, generate_initial_ops(state.get("problem_card") or {}))
+        problem_card = state.get("problem_card") or {}
+        tree = apply_ops(tree, generate_initial_ops(problem_card))
+        tree = apply_ops(tree, generate_dedupe_ops(tree, problem_card))
     return {"current_node": "node_hypothesis_init", "hypothesis_tree": tree}
 
 
@@ -290,6 +338,7 @@ def node_verification(state: AnalysisState) -> dict:
     node_id = state.get("verifying_node_id")
     module = default_registry.get_module(state.get("verifying_module") or "")
     tree = state.get("hypothesis_tree") or []
+    hypothesis_node = next((n for n in tree if n.get("id") == node_id), None)
     df = pd.read_parquet(_data_path(state))
 
     last_verification = None
@@ -298,14 +347,25 @@ def node_verification(state: AnalysisState) -> dict:
         ops = [{"op": "update_summary", "node_id": node_id, "summary": summary,
                 "node": None, "status": None, "merge_ids": None, "merged_node": None}]
     else:
-        metrics = module.run(df, {})
+        config = (
+            suggest_verification_config(hypothesis_node, state.get("problem_card") or {}, module.name, df)
+            if hypothesis_node else {}
+        )
+        metrics = module.run(df, config)
         confidence = _compute_confidence(df, module.name, module.category, metrics)
-        narrative, _ = _generate_narrative(module.category, metrics)
-        status = "verified" if confidence["level"] != "低" else "partial"
+        narrative, _ = _generate_narrative(
+            module.category,
+            metrics,
+            hypothesis_label=hypothesis_node.get("label") if hypothesis_node else None,
+            problem_card=state.get("problem_card"),
+        )
+        verdict_status = {"support": "verified", "refute": "rejected", "inconclusive": "partial"}.get(narrative.get("verdict"))
+        status = verdict_status or ("verified" if confidence["level"] != "低" else "partial")
         ops = [
             {"op": "update_status", "node_id": node_id, "status": status,
              "node": None, "summary": None, "merge_ids": None, "merged_node": None},
             {"op": "update_summary", "node_id": node_id, "summary": narrative.get("conclusion", ""),
+             "confidence_level": confidence["level"],
              "node": None, "status": None, "merge_ids": None, "merged_node": None},
         ]
         last_verification = {
@@ -328,11 +388,48 @@ def node_verification(state: AnalysisState) -> dict:
     }
 
 
+HYPOTHESIS_STATUS_LABELS = {
+    "pending": "待验证",
+    "verifying": "验证中",
+    "verified": "已验证支持",
+    "rejected": "已排除",
+    "partial": "部分验证",
+}
+
+_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
+_template_env = Environment(
+    loader=FileSystemLoader(str(_TEMPLATES_DIR)), autoescape=select_autoescape(["html"])
+)
+
+
 def node_conclusion(state: AnalysisState) -> dict:
-    """阶段三结束：汇总假设树各节点验证结果生成综合结论（写入 report_html，
-    复用既有的 GET /api/report/{session_id}/html 展示路径）。"""
-    narrative = generate_conclusion_narrative(state.get("problem_card") or {}, state.get("hypothesis_tree") or [])
-    return {"current_node": "node_conclusion", "report_html": narrative, "stage": "conclusion"}
+    """阶段三结束：汇总假设树各节点验证结果生成结构化综合结论，渲染为HTML并
+    落盘到 session_dir/report.html（解决此前 report_html 只存在于LangGraph
+    内存state、进程重启/checkpoint丢失后报告拿不到的问题），同时仍写回
+    state.report_html 保持 GET /api/report/{session_id}/html 兼容。"""
+    problem_card = state.get("problem_card") or {}
+    tree = state.get("hypothesis_tree") or []
+    conclusion = generate_conclusion_narrative(problem_card, tree)
+
+    groups: dict[str, list[dict]] = {}
+    for node in tree:
+        groups.setdefault(node.get("group") or "未分组", []).append(node)
+
+    template = _template_env.get_template("minerva_conclusion.html.j2")
+    report_html = template.render(
+        problem_card=problem_card,
+        groups=groups,
+        status_labels=HYPOTHESIS_STATUS_LABELS,
+        conclusion=conclusion,
+    )
+
+    session_id = state.get("session_id")
+    if session_id:
+        path = report_html_path(session_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(report_html, encoding="utf-8")
+
+    return {"current_node": "node_conclusion", "report_html": report_html, "stage": "conclusion"}
 
 
 def _build_graph():
@@ -342,6 +439,7 @@ def _build_graph():
     builder.add_node("node_awaiting_data", node_awaiting_data)
     builder.add_node("node1_diagnosis", node1_diagnosis)
     builder.add_node("node2_confirmation", node2_confirmation)
+    builder.add_node("node3_plan_init", node3_plan_init)
     builder.add_node("node3_preview", node3_preview)
     builder.add_node("node3_transform", node3_transform)
     builder.add_node("node4_analysis", node4_analysis)
@@ -358,7 +456,8 @@ def _build_graph():
     builder.add_conditional_edges("node0_clarification", _route_after_node0)
     builder.add_edge("node_awaiting_data", "node1_diagnosis")
     builder.add_edge("node1_diagnosis", "node2_confirmation")
-    builder.add_edge("node2_confirmation", "node3_preview")
+    builder.add_edge("node2_confirmation", "node3_plan_init")
+    builder.add_edge("node3_plan_init", "node3_preview")
     builder.add_conditional_edges("node3_preview", _route_after_preview)
     # node3_transform 之后：旧版直入node4分析报告；Minerva版转假设树验证循环
     builder.add_conditional_edges("node3_transform", _route_after_transform)

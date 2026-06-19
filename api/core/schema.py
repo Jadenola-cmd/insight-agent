@@ -100,6 +100,7 @@ class HypothesisNode(TypedDict):
     priority: bool
     status: HypothesisStatus
     verification_summary: str | None
+    confidence_level: Literal["高", "中", "低"] | None
 
 
 HypothesisTreeOpType = Literal[
@@ -113,7 +114,7 @@ class HypothesisTreeOp(TypedDict):
     """假设树增量更新操作。各 op 类型只使用其相关字段，其余为 None：
     - add_node: node
     - update_status: node_id, status
-    - update_summary: node_id, summary
+    - update_summary: node_id, summary, confidence_level（可选，验证完成时一并写回置信度）
     - merge_node: merge_ids（被合并的源节点）, merged_node（合并后的新节点）
     - remove_node: node_id
     """
@@ -123,5 +124,6 @@ class HypothesisTreeOp(TypedDict):
     node_id: str | None
     status: HypothesisStatus | None
     summary: str | None
+    confidence_level: Literal["高", "中", "低"] | None
     merge_ids: list[str] | None
     merged_node: HypothesisNode | None

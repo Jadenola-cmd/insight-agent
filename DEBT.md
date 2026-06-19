@@ -40,7 +40,9 @@
   plan 的操作类型枚举设计完整，避免频繁破坏性变更。`confirmed_schema`
   （`api/core/schema.py`）已覆盖 rename/drop/fillna/drop_rows 四类操作，Node3
   实现时需确认是否需要补充类型转换、单位换算等操作类型。
-- **WeasyPrint 系统依赖（已在本地 Windows 验证为阻塞项，2026-06-15续11决策暂停PDF）**：
+- **WeasyPrint 系统依赖（已废弃，2026-06-19决策：除非以后明确要做PDF导出，否则不再保留为TODO）**：
+  产品方向已改为HTML报告直出（Minerva综合结论也是HTML，详见`api/templates/minerva_conclusion.html.j2`），
+  以下历史记录仅供日后真要重新启用PDF时参考，不在当前待办范围内。
   WeasyPrint 依赖 Pango/Cairo/GDK-Pixbuf（GObject）等系统库，`pip install weasyprint`
   本身成功，但 `from weasyprint import HTML` 在未安装这些系统库的 Windows 上直接抛
   `OSError: cannot load library 'gobject-2.0-0'`。

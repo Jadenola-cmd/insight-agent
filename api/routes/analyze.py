@@ -6,7 +6,7 @@ from langgraph.types import Command
 from pydantic import BaseModel
 
 from api.core.graph import graph, graph_config
-from api.core.paths import cleaned_data_path, merged_data_path, raw_data_path, report_pdf_path
+from api.core.paths import cleaned_data_path, merged_data_path, raw_data_path, report_html_path, report_pdf_path
 from api.core.schema import ConfirmedSchemaRequest, JoinPlanRequest
 from api.core.session_state import load_session_state
 
@@ -135,7 +135,8 @@ async def analyze_confirm(session_id: str, confirmed_schema: ConfirmedSchemaRequ
                     elif "transform_plan" in payload:
                         # node3_preview interrupt：推送清洗计划，SSE 在此结束
                         yield _sse("transform", "waiting_preview", {
-                            "transform_plan": payload["transform_plan"]
+                            "transform_plan": payload["transform_plan"],
+                            "data_preview": payload.get("data_preview"),
                         })
                     else:
                         yield _sse("node", "interrupt", payload)
@@ -178,7 +179,8 @@ async def analyze_confirm_join(session_id: str, join_plan: JoinPlanRequest) -> S
                     payload = chunk["__interrupt__"][0].value
                     if "transform_plan" in payload:
                         yield _sse("transform", "waiting_preview", {
-                            "transform_plan": payload["transform_plan"]
+                            "transform_plan": payload["transform_plan"],
+                            "data_preview": payload.get("data_preview"),
                         })
                     else:
                         yield _sse("node", "interrupt", payload)
@@ -224,7 +226,13 @@ async def report_pdf(session_id: str) -> FileResponse:
 
 @router.get("/api/report/{session_id}/html")
 async def report_html(session_id: str) -> HTMLResponse:
-    """返回 Node5 生成的 report_html（state 中的字符串，未落盘）。"""
+    """返回报告HTML：优先读磁盘文件（node_conclusion落盘，进程重启/checkpoint
+    丢失后仍可取到），没有磁盘文件再回退读LangGraph state（旧版线性流程的
+    Node5报告未落盘，仍只在state中）。"""
+    disk_path = report_html_path(session_id)
+    if disk_path.exists():
+        return HTMLResponse(content=disk_path.read_text(encoding="utf-8"))
+
     config = graph_config(session_id)
     state_snapshot = graph.get_state(config)
     html = state_snapshot.values.get("report_html")

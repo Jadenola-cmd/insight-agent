@@ -73,8 +73,30 @@ def _fallback_narrative(category: str, metrics: dict) -> dict:
     }
 
 
-def _generate_narrative(category: str, metrics: dict) -> tuple[dict, bool]:
-    """调用LLM生成"结论-数据支撑-运营建议"三段式文字；不可用时降级但不阻断流程。"""
+def _generate_narrative(
+    category: str,
+    metrics: dict,
+    hypothesis_label: str | None = None,
+    problem_card: dict | None = None,
+) -> tuple[dict, bool]:
+    """调用LLM生成"结论-数据支撑-运营建议"三段式文字；不可用时降级但不阻断流程。
+
+    传入 hypothesis_label 时（假设验证场景），要求LLM明确写出数据对该假设是
+    支持/不支持/部分支持，并输出 verdict 字段；不传时（旧版Node5整段报告）行为不变。
+    """
+    hypothesis_context = ""
+    verdict_instruction = ""
+    if hypothesis_label:
+        hypothesis_context = f"""
+正在验证的假设：{hypothesis_label}
+问题陈述卡片（JSON）：{json.dumps(problem_card or {}, ensure_ascii=False)}
+"""
+        verdict_instruction = (
+            "结论必须明确指出本次数据分析结果对上述假设是支持、不支持还是部分支持，"
+            "并解释理由（不要只复述假设本身或泛泛而谈）。"
+            "另外输出 verdict 字段，取值只能是 support/refute/inconclusive 三者之一。"
+        )
+
     system_prompt = (
         "你是商业分析报告撰写助手。根据给定分析模块的结果数据，生成"
         "“结论-数据支撑-运营建议”三段式文字，严格按JSON格式输出，不要输出任何多余文字、"
@@ -84,12 +106,13 @@ def _generate_narrative(category: str, metrics: dict) -> tuple[dict, bool]:
         "运营建议：基于结论给出可执行的运营建议。"
         "涉及多阶段/多环节的比较（如转化率、环比、占比）时，必须严格按数据中给出的比例"
         "字段大小直接判断，不要凭直觉或粗略印象估算大小关系，避免与数据矛盾的结论。"
+        f"{verdict_instruction}"
     )
     user_prompt = f"""分析模块类别：{category}
 分析结果（JSON）：{json.dumps(metrics, ensure_ascii=False)}
-
+{hypothesis_context}
 请输出以下JSON结构：
-{{"conclusion": "...", "data_support": "...", "recommendation": "..."}}
+{{"conclusion": "...", "data_support": "...", "recommendation": "..."{', "verdict": "support|refute|inconclusive"' if hypothesis_label else ''}}}
 """
     result = chat_json(system_prompt, user_prompt)
     if not result or not all(k in result for k in ("conclusion", "data_support", "recommendation")):
