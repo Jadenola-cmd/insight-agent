@@ -4,6 +4,35 @@
 
 ---
 
+## 2026-06-19续8（生产环境LLM两条路径同时失效：Ark网关拦截+DashScope额度耗尽，切换glm-5.1）
+
+执行线上端到端测试场景1（单表上传+假设验证）时，假设树再次降级为占位文案。续7新加
+的`[llm._call]`日志这次真正发挥作用，pm2日志清晰显示Ark和DashScope同时失败。
+
+排查：
+- **Ark `ark-code-latest`**：用同一API Key、几乎相同的请求体分别从本地电脑和生产
+  服务器（175.178.91.42）直接curl火山方舟Coding Plan接口对比。本地：`HTTP 200`，
+  ~2.3s，正常返回。服务器：`HTTP 400 Bad Request`（响应体是istio-envoy网关层的
+  纯文本，不是模型API会返回的结构化JSON错误），且仅0.18s极快返回，多次复现稳定
+  一致。判定为火山方舟Coding Plan网关层对该服务器出口IP的限制/风控拦截（Coding
+  Plan通常绑定个人开发者场景，可能不允许服务器侧/自动化流量调用），**代码侧无法
+  修复**，需账号/控制台侧确认是否有IP白名单或使用条款限制，本次未继续深挖。
+- **DashScope `deepseek-v4-flash`**：免费额度已耗尽（`AllocationQuota.FreeTierOnly`），
+  与续5记录的事故同一症状再次出现。经用户确认暂不切换付费。
+
+修复：`api/services/llm.py` 的 `DASHSCOPE_MODEL` 从 `deepseek-v4-flash` 改为
+`glm-5.1`（同一 `DASHSCOPE_API_KEY` 下可正常调用，不受免费层限制）。`glm-5.1` 同
+Ark的`ark-code-latest`一样不支持 `response_format: json_object`（实测返回
+`400 Required body invalid`），改为在system prompt末尾追加"只输出合法JSON"约束，
+与Ark的处理方式保持一致。
+
+验证：本地curl直接测试DashScope+glm-5.1接口确认返回合法JSON后部署（commit
+`e04f024`）。部署后用`test_output/prod_e2e_loop.js`对生产环境重跑场景1，假设树
+正常生成5个具体假设（非占位文案），部署后pm2 `insight-api-error.log`中
+`[llm._call]`零失败记录。Ark的IP限制问题仍未解决（保留作为优先路径，失败时会
+继续静默降级到DashScope，不影响当前修复生效），但DashScope+glm-5.1已验证可作为
+当前阶段的可用LLM路径，不再阻塞后续测试场景（2-8）。
+
 ## 2026-06-19续7（假设树生成偶发失败排查：补日志+单次重试）
 
 用户线上实跑反馈假设树只生成1个占位节点（"AI生成暂不可用，请手动编辑"）。排查发现
