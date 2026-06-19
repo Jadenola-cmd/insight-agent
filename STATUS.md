@@ -2,6 +2,17 @@
 
 ## 已完成
 
+- [x] 严重事故修复：部署流程从未真正commit + 服务器LLM key缺失（2026-06-19续5）：
+      用户线上实测发现"之前的修复都没生效"+"假设树/综合结论AI解读暂不可用"，排查
+      发现本次及更早会话的所有改动一直停留在working tree从未`git commit`，
+      `deploy.sh`的`git push HEAD`实际推送的是旧commit，此前所有"部署成功"都只是
+      健康检查通过、没有真正发布新代码；同时服务器`api/.env`缺`ARK_API_KEY`且
+      `DASHSCOPE_API_KEY`免费额度已耗尽，导致LLM两条路径全失败触发fallback文案。
+      修复：积压改动整理成commit `7411c7d`后重新部署+确认服务器HEAD与本地一致；
+      经用户确认后把`ARK_API_KEY`通过SSH管道同步到服务器（未落盘本地临时文件）。
+      用Playwright直接对生产环境跑通完整场景验证，确认报告不再出现fallback文案。
+      详见CHANGELOG.md，教训详见memory `feedback_deploy_verification`。
+
 - [x] P1 部署改造为"服务器建裸仓库+本地push+post-receive hook自动checkout"
       （2026-06-19续4，已实际执行+发布）：服务器`/www`目录root拥有，初始化时
       `sudo git init --bare /www/insight-agent.git` + `sudo chown -R

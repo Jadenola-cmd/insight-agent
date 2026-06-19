@@ -4,6 +4,44 @@
 
 ---
 
+## 2026-06-19续5（严重事故复盘：部署流程从未真正commit + 服务器LLM key缺失）
+
+### 事故描述
+
+用户线上实测反馈"之前报告的问题都没改"+"假设树/综合结论AI解读暂不可用"。排查发现
+两个独立问题叠加：
+
+1. **本次会话（及更早若干次会话）的所有代码改动从未`git commit`**，一直停留在
+   working tree。`scripts/deploy.sh`用`git push HEAD:refs/heads/deploy`部署，
+   push的是**已提交的commit**，不包含working tree里的改动，所以本次会话的P0-1
+   改动、以及更早会话里组A/B/C体验修复、LLM切Ark等全部从未真正发布到生产环境——
+   `bash scripts/deploy.sh`跑出的"部署成功"+健康检查通过只证明了服务正常重启，
+   没有证明部署内容是新代码。**教训：deploy.sh注释里写了"部署前请先commit"，
+   但脚本本身不做检查，必须养成习惯先`git status`确认无未commit改动再部署；
+   验证部署是否生效不能只看健康检查，要对比服务器`git rev-parse HEAD`和本地一致，
+   且最好实际触发一次行为验证（如本次靠Playwright访问真实生产URL）。**
+   修复：把所有积压的working tree改动整理成一个commit（`7411c7d`），重新跑
+   `scripts/deploy.sh`，确认服务器HEAD与本地一致。
+2. **服务器`api/.env`只配置了`DASHSCOPE_API_KEY`，且该key免费额度已耗尽**
+   （DashScope返回403 `AllocationQuota.FreeTierOnly`），`ARK_API_KEY`从未同步到
+   服务器（`.env`本身gitignored，部署流程不会同步它）。两条LLM路径全部失败，
+   `chat_json()`返回`None`，各调用方触发"AI解读暂不可用"fallback文案——表面是
+   产品文案问题，根因是账户/密钥配置问题。修复：经用户确认后，把本地
+   `ARK_API_KEY`通过SSH管道直接append到服务器`.env`（全程未落盘到本地临时文件，
+   避免明文密钥落地），`pm2 restart insight-api`后验证`chat_json()`真实调通。
+
+### 验证
+
+- 修复commit部署后用`test_output/minerva_scenario.js`场景1直接对生产环境
+  `http://175.178.91.42:3001`跑一次完整端到端（问题定义→上传→诊断→口径确认→
+  清洗→假设树生成15条假设→验证假设1→生成综合结论），全部通过、无控制台报错；
+  抓取`/api/report/{id}/html`确认不再出现"AI解读暂不可用"，执行摘要是基于
+  真实假设验证结果的LLM生成内容。
+- 教训沉淀进memory：`feedback_deploy_verification`（部署后必须验证HEAD一致+
+  实际行为，不能只看健康检查）。
+
+---
+
 ## 2026-06-19续4（P1 部署改造：服务器裸仓库 + post-receive hook）
 
 - 根因/动机：此前部署用`git archive HEAD | ssh ... tar -x`整包传输，服务器端
