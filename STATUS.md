@@ -212,27 +212,35 @@
 
 ## 下次会话优先做
 
-### 线上端到端测试方案（2026-06-19续7设计，下次会话开始执行）
+### 线上端到端测试方案（2026-06-19续7设计，续8开始执行，进行中，下次会话从场景2继续）
 
 目标：验证近期几轮修复（组A/B/C体验修复、假设树MECE去重、验证前推荐模块、结论报告
 持久化、续7的LLM静默失败+重试）在生产环境（`http://175.178.91.42:3001/minerva`）
-是否真实生效，而非只看健康检查。工具用Playwright（复用`test_output/minerva_e2e.js`
-模式）新建`test_output/prod_e2e_loop.js`，目标URL写死为生产地址，真实LLM调用不mock；
-测试期间用`Monitor`工具实时盯`ssh ... pm2 logs insight-api`，重点看续7新加的
-`[llm._call]`异常日志是否在真实失败时出现。
+是否真实生效，而非只看健康检查。工具用Playwright，已新建`test_output/prod_e2e_loop.js`
+（目标URL写死为生产地址，真实LLM调用不mock）。测试期间用`Monitor`工具实时盯
+`ssh ... pm2 logs insight-api`，重点看续7新加的`[llm._call]`异常日志。
+
+**续8进度**：场景1执行过程中发现并修复了生产环境LLM两条路径同时失效的事故（Ark
+网关IP拦截+DashScope额度耗尽，详见上方"已完成"条目与CHANGELOG），修复部署验证后
+场景1正式通过。场景2（多表Join）刚定位好测试数据集——
+`AIOutput/Claude/20260615钱包测试数据/完整版/`下5张表
+（`ods_wallet_events.csv`/`dwd_credit_apply.csv`/`dwd_loan_record.csv`/
+`dim_user_profile_crm.csv`/`dim_user_profile_risk.csv`，`test_output/qa_loop.js`
+里有现成的旧版多表上传流程可参考改造成Minerva版），尚未实际执行。
 
 场景矩阵（按顺序跑，每场景截图+日志落盘到`test_output/`）：
-1. 单表上传+假设验证：全流程跑通，假设树不出现占位文案，验证前展示LLM推荐模块+依据
-2. 多表上传+Join：Join方案确认、清洗计划稳定（同schema重复confirm不重新生成）
-3. 假设树MECE：检查初始树不同分组间是否仍有本质重叠假设
-4. 数据不相关场景：故意用不相关字段验证假设，确认返回`data_sufficient:false`而非
+1. [x] 单表上传+假设验证：全流程跑通，假设树不出现占位文案。（验证前展示推荐模块
+   +依据这点截图`test_output/prod_s1_step5_recommend.png`已存，尚未人工抽查内容）
+2. [ ] 多表上传+Join：Join方案确认、清洗计划稳定（同schema重复confirm不重新生成）
+3. [ ] 假设树MECE：检查初始树不同分组间是否仍有本质重叠假设
+4. [ ] 数据不相关场景：故意用不相关字段验证假设，确认返回`data_sufficient:false`而非
    硬凑结论
-5. 表级口径问题：同义不同名字段，勾选"让AI自动处理"，检查清洗计划输出具体
+5. [ ] 表级口径问题：同义不同名字段，勾选"让AI自动处理"，检查清洗计划输出具体
    `standardize_categories`映射
-6. 高频连续LLM调用：模拟真实session节奏连续触发多次LLM调用，专测续7"假设树偶发
+6. [ ] 高频连续LLM调用：模拟真实session节奏连续触发多次LLM调用，专测续7"假设树偶发
    失败"场景，确认重试机制+失败日志均生效
-7. 综合结论生成：`report.html`落盘、结构化执行摘要、置信度徽标
-8. 模糊/边界输入：模糊问题描述，确认澄清对话能收敛
+7. [ ] 综合结论生成：`report.html`落盘、结构化执行摘要、置信度徽标
+8. [ ] 模糊/边界输入：模糊问题描述，确认澄清对话能收敛
 
 验收标准：全流程无500/502/控制台报错；假设树不出现"AI生成暂不可用"（除非主动模拟
 LLM全挂）；场景4必须真正拦截不硬凑结论；报告内容人工抽查执行摘要/建议/置信度均有
