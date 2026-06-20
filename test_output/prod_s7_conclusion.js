@@ -100,14 +100,8 @@ let realVerifyCount = 0;
     }
 
     if (startVisible && dataSufficient) {
-      // 已知bug（见DEBT.md）：attribution模块遇分类自变量会500崩溃，测试时主动绕开，
-      // 改选其他模块以验证报告生成链路本身
-      const select = page.locator("select").last();
-      const currentModule = await select.inputValue().catch(() => "");
-      if (currentModule === "attribution") {
-        await select.selectOption("trend_insight");
-        console.log(`  [${i}] 推荐模块是attribution（已知500 bug），测试时手动切换为trend_insight`);
-      }
+      // DEBT.md里attribution模块500 bug已修复，这次故意保留LLM推荐的原始模块
+      // （即使是attribution）直接验证修复是否生效，不再绕开
       await page.locator('button:has-text("开始验证")').first().click();
       realVerifyCount++;
       console.log(`  [${i}] 命中真正验证模块，已点击"开始验证"`);

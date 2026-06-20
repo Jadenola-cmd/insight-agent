@@ -26,7 +26,15 @@ channel/risk_tier/loan_result等分类字段构造的数据验证不再抛`TypeE
 STATUS.md精简：删除6月15日以来累积的500+行详细历史记录（与本文件逐日条目重复），
 只保留"进行中/待开始"当前待办视图+一段概括性"已完成"汇总，明确历史详情查
 CHANGELOG.md。DEBT.md删除"Join方案确认点缺少否认/修改路径"（旧路线P1/P2，已确认
-被Minerva取代不再投入），上述2个bug标注"修复已实现，待生产环境验证"。
+被Minerva取代不再投入）。
+
+部署到生产环境（commit`601c943`）后用真实数据验证两个修复均生效：①直接对原始
+500崩溃session的`merged.parquet`（`mnvqyg2oefcmqlvsc06`）用原复现config重跑
+`AttributionModule.run()`，不再抛`TypeError`，正确算出`channel_wallet`/
+`risk_tier_高`等one-hot因子；②`test_output/prod_s5_table_issue.js`对5表钱包
+数据集重跑，`event_name`字段正确生成`{"touch_click":"tap","click_event":"click"}`
+映射（此前完全被跳过），`page_name`/`app_version`/`is_personalized`同批次也都
+生成了具体映射。两条DEBT.md记录已移入"已解决"。
 
 ## 2026-06-20（线上端到端测试续：排查"502"反馈+场景2多表Join测试通过）
 

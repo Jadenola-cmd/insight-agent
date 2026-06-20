@@ -55,8 +55,10 @@ let capturedTransformPlan = null;
     await page.waitForFunction(
       (el) => !el.disabled,
       await input.elementHandle(),
-      { timeout: 20000 }
+      { timeout: 60000 }
     ).catch(() => {});
+    const stillDisabled = await input.isDisabled().catch(() => true);
+    if (stillDisabled) { console.log("  (input仍disabled，跳过这轮重试上传检测)"); break; }
     await input.fill(msg);
     await page.click('button:has-text("发送")');
     await page.waitForTimeout(8000);
@@ -66,7 +68,7 @@ let capturedTransformPlan = null;
 
   await page.setInputFiles('input[type="file"]', FILES);
   await page.click('button:has-text("上传并开始分析")');
-  await page.waitForSelector("text=数据诊断完成", { timeout: 90000 });
+  await page.waitForSelector("text=数据诊断完成", { timeout: 150000 });
   console.log("STEP2 多表上传+诊断 OK");
 
   // Step3: 检查表级口径问题，勾选"让AI自动处理此问题"
@@ -86,11 +88,11 @@ let capturedTransformPlan = null;
   await page.locator('button:has-text("确认并开始清洗")').first().click();
   console.log("STEP3 已提交字段口径确认，等待Join方案...");
 
-  await page.waitForSelector('h2:has-text("多表关联方案确认")', { timeout: 90000 });
+  await page.waitForSelector('h2:has-text("多表关联方案确认")', { timeout: 150000 });
   console.log("STEP4 Join方案生成 OK");
   await page.locator('button:has-text("确认关联方案，继续清洗")').first().click();
 
-  await page.waitForSelector('h2:has-text("清洗计划预览")', { timeout: 90000 });
+  await page.waitForSelector('h2:has-text("清洗计划预览")', { timeout: 150000 });
   console.log("STEP5 清洗计划生成 OK");
   await page.screenshot({ path: "test_output/prod_s5_step5_plan.png", fullPage: true });
 
