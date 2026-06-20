@@ -61,12 +61,29 @@ def _build_deterministic_ops(confirmed_schema: dict) -> list[dict]:
     return ops
 
 
-def _llm_supplementary_ops(confirmed_schema: dict, deterministic_ops: list[dict]) -> tuple[list[dict], bool]:
+def _llm_supplementary_ops(
+    confirmed_schema: dict, deterministic_ops: list[dict], diagnosis: dict | None = None
+) -> tuple[list[dict], bool]:
     """请求 LLM 输出补充清洗操作（仅 ALLOWED_LLM_OPS 范围内）。
     返回 (ops, llm_available)。LLM 不可用或返回格式不合法时返回 ([], False)，
-    不阻断流程（仅执行确定性部分）。"""
+    不阻断流程（仅执行确定性部分）。
+
+    diagnosis（Node1诊断结果）按 original_name 查 sample_values 补充进每个字段，
+    没有它LLM只能凭字段名/业务含义猜同义值，猜得出true/false这种通用模式，猜不出
+    业务特定的同义值（如event_name的tap/touch_click/click实际都是"点击"），会导致
+    "让AI自动处理"的表级问题被静默跳过（详见DEBT.md）。
+    """
+    sample_values_by_name = (
+        {col["name"]: col.get("sample_values", []) for col in diagnosis.get("columns", [])}
+        if diagnosis
+        else {}
+    )
     included_columns = [
-        {"final_name": col["final_name"], "business_meaning": col["business_meaning"]}
+        {
+            "final_name": col["final_name"],
+            "business_meaning": col["business_meaning"],
+            "sample_values": sample_values_by_name.get(col["original_name"], []),
+        }
         for col in confirmed_schema["columns"]
         if col["include"]
     ]
@@ -78,12 +95,13 @@ def _llm_supplementary_ops(confirmed_schema: dict, deterministic_ops: list[dict]
         "只允许输出以下5种操作类型：cast_type、strip_whitespace、standardize_categories、"
         "unit_convert、drop_duplicates。列名必须使用给定的 final_name。\n"
         "「用户要求AI处理的表级口径问题」列表中的每一条都必须尝试给出实际处理方式：如果问题描述的是"
-        "同义不同名/疑似重复类别（如'click'与'click_event'可能表示同一事件），必须从问题描述中识别出"
-        "涉及的列名和具体的同义值，输出一条 standardize_categories 操作，mapping 把所有同义值统一映射"
-        "到其中一个更规范的值；只有在问题描述完全无法对应到具体列名/具体值时才允许跳过该条。\n"
+        "同义不同名/疑似重复类别（如'click'与'click_event'可能表示同一事件），必须参考字段列表里该列的"
+        "sample_values（真实取值样本），从中识别出实际存在的同义值，输出一条 standardize_categories "
+        "操作，mapping 把这些真实同义值统一映射到其中一个更规范的值——不要凭空编造sample_values里没有"
+        "出现过的取值；只有在sample_values确实不包含任何同义值线索时才允许跳过该条。\n"
         "如果没有需要补充的操作，ops 返回空数组。"
     )
-    user_prompt = f"""字段列表（final_name + business_meaning）：
+    user_prompt = f"""字段列表（final_name + business_meaning + sample_values真实取值样本）：
 {json.dumps(included_columns, ensure_ascii=False)}
 
 已确定执行的清洗操作（供参考，避免重复处理同一列）：

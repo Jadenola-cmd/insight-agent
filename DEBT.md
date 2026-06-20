@@ -24,6 +24,42 @@
 
 ### 待解决
 
+- **AttributionModule遇分类自变量直接500崩溃（2026-06-20线上测试场景7发现，较严重）**：
+  `api/modules/attribution.py`的`validate(df)`只检查"全表至少有2个数值列"，但
+  `run(df, config)`实际使用的是`config`里指定的`dependent_column`/
+  `independent_columns`（来自`suggest_verification_config`的LLM推荐，未必是数值
+  列）。当LLM推荐用分类字段做归因（如`channel`/`risk_tier`/`loan_result`，业务上
+  合理但技术上该模块处理不了），`run()`里`data.std()`对字符串列直接抛
+  `TypeError: could not convert string to float`，FastAPI未捕获导致`/resume`接口
+  500，前端卡死无法继续。复现：5表钱包数据集，问题"放款通过率波动"，命中
+  attribution模块config`{dependent_column:"loan_result",
+  independent_columns:["channel","risk_tier","credit_score","is_blacklist"]}`。
+  修复思路：`validate()`改为接收`config`参数，检查config里实际选中的列是否数值型，
+  不是就返回False（`node_verification`已有"模块不适用"的降级分支，会走"所选验证
+  方式不适用于当前数据"提示而不是抛异常）；或`run()`内部对非数值列做onehot/丢弃
+  而不是假设全是数值。复现脚本`test_output/prod_s7_conclusion.js`。
+  **修复已实现（2026-06-20）**：`run()`内部对非数值dependent_column做二元编码
+  （恰好2个取值时映射0/1），独立变量做one-hot展开（高基数列>15取值时跳过），
+  本地用同形态数据验证不再抛异常且能跑出真实factors。待生产环境用原复现config
+  重跑确认后移入"已解决"。
+
+- **清洗计划LLM补充op生成时看不到字段实际取值，业务特定同义值标准化会漏掉
+  （2026-06-20线上测试场景5发现）**：`api/nodes/node3_transform.py`的
+  `_llm_supplementary_ops()`生成`standardize_categories`等补充操作时，传给LLM
+  的`included_columns`只有`final_name`+`business_meaning`（一句话推断含义），
+  没有传Node1诊断阶段（`node1_diagnosis.py`）已经算出的`sample_values`。导致
+  LLM只能靠通用知识猜同义值（如布尔值true/TRUE/1/yes能猜对），猜不出业务特定的
+  同义值（如事件名`tap`/`touch_click`/`click`/`click_event`实际都是"点击"，
+  但LLM没看到这些真实取值，即使用户已勾选"让AI自动处理此问题"，该字段也会被
+  静默跳过、不生成任何操作，且不报错提示）。修复思路：把`sample_values`（或该列
+  `unique_count`较小时的全部去重值）随`confirmed_schema`传到Node3，补充进
+  `_llm_supplementary_ops`的prompt里。复现脚本
+  `test_output/prod_s5_table_issue.js`（5表钱包数据集，`event_name`字段）。
+  **修复已实现（2026-06-20）**：`generate_transform_plan()`/`_llm_supplementary_ops()`
+  新增`diagnosis`参数，按`original_name`查sample_values补充进prompt，要求LLM映射
+  必须基于真实取值。本地用含`event_name`真实取值的confirmed_schema验证LLM能生成
+  基于样本值的mapping。待生产环境用5表数据集重跑确认后移入"已解决"。
+
 - **LangGraph checkpoint 使用 `MemorySaver`（纯内存）**：`api/core/graph.py`
   当前用 `MemorySaver` 按 `thread_id = session_id` 隔离会话。这意味着：
   - 进程重启（如 `pm2 restart`/部署）会丢失所有**已诊断但尚未提交
@@ -74,8 +110,3 @@
   （见 empirical-agent `docs/DEBT.md`）。本项目若与 empirical-agent 共用服务器，
   Pandas 处理大 CSV + WeasyPrint 渲染 PDF 可能进一步加剧内存压力，需在部署前评估
   是否需要限制上传文件大小或升级服务器内存。
-- **Join方案确认点缺少"否认/修改"路径（2026-06-17续5，P1/P2，本轮未做）**：
-  本轮只解决了Node3清洗计划的回退（P0）。`JoinPlanForm.js`本身支持编辑但缺少
-  "让AI重新生成"按钮（P1，增量小）；若在Join阶段发现Node2字段口径本身错了，
-  也没有"返回改口径"的路径（P2，需要把`run_node2_confirmation`从线性两阶段
-  改成可循环结构，工作量较大）。等P0验证后再评估是否要做。

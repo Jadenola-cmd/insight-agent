@@ -4,6 +4,90 @@
 
 ---
 
+## 2026-06-20续（修复场景5/7发现的2个真实bug + STATUS.md/DEBT.md精简）
+
+修复场景7发现的`AttributionModule`500崩溃：`api/modules/attribution.py`的`run()`
+新增`_binary_encode()`（非数值dependent_column恰好2个取值时映射0/1，否则降级为
+全表第一个数值列）+ one-hot展开非数值independent_columns（`pd.get_dummies`，高基数
+列>15取值时跳过避免哑变量爆炸），不再假设config选中的列全是数值型。本地用
+channel/risk_tier/loan_result等分类字段构造的数据验证不再抛`TypeError`，能跑出
+真实factors（含编码后的`channel_B`/`risk_tier_low`等可读变量名）。
+
+修复场景5发现的event_name等同义值清洗被跳过：`api/nodes/node3_transform.py`的
+`_llm_supplementary_ops()`新增`diagnosis`参数，按`original_name`从Node1诊断结果
+查`sample_values`补充进每个字段的prompt上下文，要求LLM的`standardize_categories`
+映射必须基于真实取值而非凭空猜测；`api/nodes/node3_preview.py`的
+`generate_transform_plan()`新增`diagnosis`参数透传；`api/core/graph.py`的
+`node3_plan_init`调用处改为传入`state["analysis_results"].get("diagnosis")`。
+本地用含`event_name`真实取值（tap/touch_click/click/click_event）的confirmed_schema
+验证LLM现在能生成基于样本值的mapping（此前完全看不到这些值，只能猜布尔值类通用
+模式）。
+
+STATUS.md精简：删除6月15日以来累积的500+行详细历史记录（与本文件逐日条目重复），
+只保留"进行中/待开始"当前待办视图+一段概括性"已完成"汇总，明确历史详情查
+CHANGELOG.md。DEBT.md删除"Join方案确认点缺少否认/修改路径"（旧路线P1/P2，已确认
+被Minerva取代不再投入），上述2个bug标注"修复已实现，待生产环境验证"。
+
+## 2026-06-20（线上端到端测试续：排查"502"反馈+场景2多表Join测试通过）
+
+用户反馈昨天（6/19）线上测试时遇到502。排查nginx access/error log（覆盖6/19全天至
+今）未发现任何真实502；进一步发现insight-agent（3001端口）与empirical-agent（80
+端口）共用同一份默认access.log，之前粗略grep到的502其实是analysis-lab.site等无关
+流量的历史噪音。按`3001/minerva`的Referer过滤后，真实记录是两次499（nginx记录的
+"client主动断开"）：18:24:54/18:27:49，正好落在续8修复前"假设树生成因Ark+DashScope
+双路径失效而长时间挂起"的窗口内，浏览器等不到响应被判定断开；20:09:58还有一次499，
+但后端日志显示该次resume最终200成功返回，说明只是响应慢+前端resume()没有任何超时/
+重试反馈，用户体感"卡住"，并非接口报错。该体验缺口（建议加超时+重试按钮）已告知
+用户，用户选择暂不处理，先继续后续测试场景。
+
+新增`test_output/prod_s2_join.js`（场景2：5表上传+Join+清洗计划稳定性），跑通：
+诊断→字段口径确认→Join方案确认（LLM推荐主表`ods_wallet_events`+4个LEFT JOIN on
+user_id，合理）→清洗计划生成→退回重新确认口径走完整链路重跑一遍→确认执行→假设树
+生成，全程无报错、无占位文案。清洗计划的操作列表本身（如`material_id`填充空值）
+两次生成保持一致；数据预览样例行文案有差异，定位为`build_data_preview()`每次重新
+`sample()`无固定seed导致的展示层非确定性，不是清洗计划重新生成的回归，暂不处理。
+
+新增`test_output/prod_s3_mece.js`（场景3：假设树MECE检查）。改进了测试方法：不再
+靠读截图/DOM文本人工判断，而是直接拦截`/api/analyze/{id}/resume`接口返回的JSON
+（`interrupt.type === "hypothesis_tree"`时`interrupt.tree`是结构化节点数组，含
+`group`/`label`），程序化做跨组字符级Jaccard相似度检查辅助人工通读。单表场景生成
+11个假设/3组（供给侧/需求侧/数据侧），未发现本质重叠假设，MECE检查通过。
+
+新增`test_output/prod_s6_load.js`（场景6：高频连续LLM调用）。单表流程连续验证4个
+假设（每个间隔仅3秒），自然触发一次真实Ark超时（pm2日志`[llm._call]
+ark-code-latest ReadTimeout`），但4次验证全部成功完成（6.2-9.2s/次）、无占位文案，
+确认续7失败日志+续8 glm-5.1兜底组合在真实压力下生效。
+
+新增`test_output/prod_s7_conclusion.js`（场景7：综合结论生成）。过程中发现一个
+**较严重的真实bug**：`api/modules/attribution.py`的`validate()`只检查全表数值列
+数量，不检查`suggest_verification_config`实际推荐的列是否数值型；LLM推荐用分类
+字段（如`channel`/`risk_tier`/`loan_result`="success"）做归因分析时，`run()`里
+`data.std()`对字符串列抛`TypeError`，FastAPI未捕获导致`/resume`接口500、前端卡死。
+已记入DEBT.md。测试时手动绕开attribution改选trend_insight验证报告生成链路本身：
+`report.html`确认落盘（10KB），`置信度：低`徽标真实存在（此前怀疑过的"零置信度
+文案"经排查只是测试脚本两次都验证到了同一个数据不足节点，并非产品bug），执行
+摘要/建议/注意事项三段式文案均有实质内容。
+
+新增`test_output/prod_s8_fuzzy.js`（场景8：模糊/边界输入）。连续3轮极度模糊的回答
+后，澄清对话在设计上限内正确收敛并输出合理的analysis_goal，未死循环追问。
+
+新增`test_output/prod_s5_table_issue.js`（场景5：表级口径问题，5表钱包数据集）。
+发现真实bug：表级问题诊断正确识别`event_name`同义不同名（实际数据`tap/
+touch_click/click/click_event`均为同义值）并被勾选"让AI自动处理"，但最终清洗
+计划未对`event_name`生成任何`standardize_categories`操作（同批次的`is_personalized`
+布尔值同义却正确生成了10组映射）。根因：`node3_transform.py`的
+`_llm_supplementary_ops()`只把字段名+业务含义传给LLM，没有传Node1诊断阶段已算出
+的`sample_values`，LLM猜不出业务特定的同义值。已记入DEBT.md，暂不修复，继续推进
+场景6-8。
+
+新增`test_output/prod_s4_insufficient.js`（场景4：数据不相关场景）。故意构造
+"APP页面加载慢导致流失"问题搭配`m1.csv`（仅user_id/amount/city/date字段，与页面
+性能完全不相关）的组合，验证组C修复（#6/#7/#9）里新增的`recommend_verification`
+拦截机制是否真的生效：第一个假设节点的`/verification/recommend`即正确返回
+`data_sufficient:false`+具体缺失字段说明，前端正确展示警示卡片+"标记为数据不足，
+跳过验证"按钮，点击后该节点被标记`partial`+固定的"无法验证"摘要，未触发任何分析
+模块硬跑出虚假结论。一次构造即命中，未发生此前担心的"LLM误判数据可用"情况。
+
 ## 2026-06-19续8（生产环境LLM两条路径同时失效：Ark网关拦截+DashScope额度耗尽，切换glm-5.1）
 
 执行线上端到端测试场景1（单表上传+假设验证）时，假设树再次降级为占位文案。续7新加

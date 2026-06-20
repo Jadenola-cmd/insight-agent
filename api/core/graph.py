@@ -123,7 +123,7 @@ def node3_plan_init(state: AnalysisState) -> dict:
     if cache_hit and not force_regenerate:
         plan = state["transform_plan_cache"]
     else:
-        plan, _ = generate_transform_plan(schema)
+        plan, _ = generate_transform_plan(schema, state["analysis_results"].get("diagnosis"))
 
     described = describe_plan(plan)
     data_preview = build_data_preview(state["raw_data_path"], plan, state.get("confirmed_join_plan"))

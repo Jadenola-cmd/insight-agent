@@ -47,13 +47,16 @@ OP_DESCRIPTIONS = {
 }
 
 
-def generate_transform_plan(confirmed_schema: dict) -> tuple[list[dict], bool]:
+def generate_transform_plan(confirmed_schema: dict, diagnosis: dict | None = None) -> tuple[list[dict], bool]:
     """生成最终清洗 plan（确定性 + LLM补充，按 docs/ARCHITECTURE.md 3.3节排序），不执行。
 
     复用 node3_transform 中的内部函数，避免清洗操作枚举/排序逻辑出现第二处定义。
+    diagnosis（Node1诊断结果，含各列sample_values）传给LLM补充op生成，让同义值
+    标准化能基于真实取值而不是凭空猜测（详见DEBT.md "node3清洗LLM补充op看不到
+    字段实际取值"）。
     """
     deterministic_ops = _build_deterministic_ops(confirmed_schema)
-    llm_ops, llm_available = _llm_supplementary_ops(confirmed_schema, deterministic_ops)
+    llm_ops, llm_available = _llm_supplementary_ops(confirmed_schema, deterministic_ops, diagnosis)
     plan = _order_plan(deterministic_ops + llm_ops)
     return plan, llm_available
 
