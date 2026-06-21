@@ -26,5 +26,9 @@
   清洗被静默跳过，均见DEBT.md「已解决」）。
 - 2026-06-21：Minerva综合结论report.html嵌入图表（持久化单假设验证图表到假设树
   节点 + 新增KPI总览/状态分布图，前端ECharts JS渲染，vendor本地echarts.min.js，
-  零新增系统依赖），报告结构按商业分析师交付惯例重排（执行摘要前置）。本地已
-  跑通app加载/模板渲染/数据持久化验证，**线上部署+真实session端到端验证待执行**。
+  零新增系统依赖），报告结构按商业分析师交付惯例重排（执行摘要前置）。已部署
+  线上（commit afcb3a8），用服务器真实测试数据（minerva_test_data.csv）跑通
+  node_verification→node_conclusion 全流程，确认 chart_spec 正确持久化到假设树
+  节点，且 `GET /api/report/{session_id}/html` 真实HTTP路由返回的report.html
+  含两条假设的图表div+/static/echarts.min.js引用，`/static/echarts.min.js`
+  本身200可访问。
