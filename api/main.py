@@ -1,6 +1,9 @@
+from pathlib import Path
+
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 
@@ -21,3 +24,5 @@ app.include_router(analyze.router)
 app.include_router(v03.router)
 app.include_router(data_append.router)
 app.include_router(verification.router)
+
+app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parent / "static")), name="static")

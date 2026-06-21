@@ -2,21 +2,31 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>综合结论</title>
+<title>综合分析报告</title>
+<script src="/static/echarts.min.js"></script>
 <style>
   .minerva-report {
     font-family: "Noto Sans CJK SC", "Noto Sans SC", "Microsoft YaHei", "SimHei", sans-serif;
     color: #1f2329;
     line-height: 1.6;
     font-size: 14px;
+    max-width: 960px;
+    margin: 0 auto;
   }
   .minerva-report h1 {
-    font-size: 20px;
-    margin-bottom: 0.6em;
+    font-size: 22px;
+    margin-bottom: 0.2em;
+  }
+  .minerva-report .report-subtitle {
+    color: #909399;
+    font-size: 13px;
+    margin-bottom: 1.2em;
   }
   .minerva-report h2 {
     font-size: 16px;
-    margin-top: 1.4em;
+    margin-top: 1.6em;
+    border-left: 4px solid #5470c6;
+    padding-left: 0.5em;
     color: #2f3542;
   }
   .minerva-report .problem-card {
@@ -33,6 +43,38 @@
     font-weight: bold;
     margin-right: 0.4em;
     color: #606266;
+  }
+  .minerva-report .kpi-row {
+    display: flex;
+    gap: 12px;
+    margin: 0.8em 0 1.2em;
+    flex-wrap: wrap;
+  }
+  .minerva-report .kpi-card {
+    flex: 1;
+    min-width: 120px;
+    border: 1px solid #e4e7ed;
+    border-radius: 6px;
+    padding: 12px 14px;
+    text-align: center;
+    background-color: #fff;
+  }
+  .minerva-report .kpi-card .kpi-value {
+    font-size: 26px;
+    font-weight: bold;
+    color: #2f3542;
+  }
+  .minerva-report .kpi-card .kpi-label {
+    font-size: 12px;
+    color: #909399;
+    margin-top: 0.2em;
+  }
+  .minerva-report .kpi-card.kpi-verified .kpi-value { color: #67c23a; }
+  .minerva-report .kpi-card.kpi-rejected .kpi-value { color: #f56c6c; }
+  .minerva-report .kpi-card.kpi-partial .kpi-value { color: #e6a23c; }
+  .minerva-report .status-chart {
+    height: 280px;
+    margin-bottom: 1em;
   }
   .minerva-report .group-block {
     margin-bottom: 1em;
@@ -73,6 +115,10 @@
     color: #606266;
     font-size: 13px;
   }
+  .minerva-report .hypothesis-chart {
+    height: 280px;
+    margin: 0.6em 0;
+  }
   .minerva-report .executive-summary,
   .minerva-report .recommendation {
     margin: 0.4em 0;
@@ -93,9 +139,16 @@
 </head>
 <body>
   <div class="minerva-report">
-    <h1>综合结论</h1>
+    <h1>综合分析报告</h1>
+    {% if problem_card.analysis_goal %}
+    <p class="report-subtitle">分析目标：{{ problem_card.analysis_goal }}</p>
+    {% endif %}
+
+    <h2>执行摘要</h2>
+    <p class="executive-summary">{{ conclusion.executive_summary }}</p>
 
     {% if problem_card %}
+    <h2>问题陈述</h2>
     <div class="problem-card">
       <p><span class="label">问题：</span>{{ problem_card.question }}</p>
       {% if problem_card.baseline %}<p><span class="label">基线：</span>{{ problem_card.baseline }}</p>{% endif %}
@@ -103,7 +156,30 @@
     </div>
     {% endif %}
 
-    <h2>假设验证情况</h2>
+    <h2>验证总览</h2>
+    <div class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-value">{{ total_hypotheses }}</div>
+        <div class="kpi-label">总假设数</div>
+      </div>
+      <div class="kpi-card kpi-verified">
+        <div class="kpi-value">{{ status_counts.verified }}</div>
+        <div class="kpi-label">已验证支持</div>
+      </div>
+      <div class="kpi-card kpi-rejected">
+        <div class="kpi-value">{{ status_counts.rejected }}</div>
+        <div class="kpi-label">已排除</div>
+      </div>
+      <div class="kpi-card kpi-partial">
+        <div class="kpi-value">{{ status_counts.partial }}</div>
+        <div class="kpi-label">部分验证</div>
+      </div>
+    </div>
+    {% if status_chart %}
+    <div id="status-chart" class="status-chart"></div>
+    {% endif %}
+
+    <h2>假设验证详情</h2>
     {% for group_name, nodes in groups.items() %}
     <div class="group-block">
       <div class="group-title">{{ group_name }}</div>
@@ -117,20 +193,20 @@
         {% if node.verification_summary %}
         <p class="verification-summary">{{ node.verification_summary }}</p>
         {% endif %}
+        {% if node.chart_spec %}
+        <div id="chart-{{ node.id }}" class="hypothesis-chart"></div>
+        {% endif %}
       </div>
       {% endfor %}
     </div>
     {% endfor %}
 
-    <h2>执行摘要</h2>
-    <p class="executive-summary">{{ conclusion.executive_summary }}</p>
-
-    <h2>下一步建议</h2>
+    <h2>行动建议</h2>
     <p class="recommendation">{{ conclusion.recommendation }}</p>
 
     {% if conclusion.caveats %}
+    <h2>风险与局限性</h2>
     <div class="caveats">
-      <strong>注意事项：</strong>
       <ul>
         {% for caveat in conclusion.caveats %}
         <li>{{ caveat }}</li>
@@ -139,5 +215,27 @@
     </div>
     {% endif %}
   </div>
+
+  <script>
+    (function () {
+      var charts = [];
+      {% if status_chart %}
+      charts.push({ id: "status-chart", option: {{ status_chart | tojson }} });
+      {% endif %}
+      {% for group_name, nodes in groups.items() %}
+      {% for node in nodes %}
+      {% if node.chart_spec %}
+      charts.push({ id: "chart-{{ node.id }}", option: {{ node.chart_spec | tojson }} });
+      {% endif %}
+      {% endfor %}
+      {% endfor %}
+      charts.forEach(function (item) {
+        var el = document.getElementById(item.id);
+        if (el && window.echarts) {
+          window.echarts.init(el).setOption(item.option);
+        }
+      });
+    })();
+  </script>
 </body>
 </html>

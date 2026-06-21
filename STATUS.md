@@ -9,12 +9,7 @@
 
 ## 待开始（按优先级）
 
-1. **Minerva综合结论report.html是否需要嵌入图表**（需先确认是否要做，未排期）：
-   `api/templates/minerva_conclusion.html.j2`目前只有文字+置信度徽标，不含任何
-   图表；右侧实时面板的ECharts图表不会进入落盘的`report.html`。旧版`api/render/`
-   ECharts SSR渲染器是为已废弃的旧线性流程`report.html.j2`设计的，目标已经过时，
-   如果要做应该是"给Minerva综合结论加图表"这个新问题，不是简单捡回旧渲染器。
-2. **WeasyPrint PDF导出**：已决策维持现状（HTML直出），除非明确要重新做PDF导出，
+1. **WeasyPrint PDF导出**：已决策维持现状（HTML直出），除非明确要重新做PDF导出，
    否则不再保留为待办，详见 DEBT.md。
 
 ## 已完成（概括，详情见CHANGELOG.md）
@@ -29,3 +24,7 @@
   排查并排除了用户反馈的"502"（实为历史日志噪音+真实499均已在更早修复中解决），
   发现并修复2个真实bug（AttributionModule分类自变量500崩溃、event_name等同义值
   清洗被静默跳过，均见DEBT.md「已解决」）。
+- 2026-06-21：Minerva综合结论report.html嵌入图表（持久化单假设验证图表到假设树
+  节点 + 新增KPI总览/状态分布图，前端ECharts JS渲染，vendor本地echarts.min.js，
+  零新增系统依赖），报告结构按商业分析师交付惯例重排（执行摘要前置）。本地已
+  跑通app加载/模板渲染/数据持久化验证，**线上部署+真实session端到端验证待执行**。

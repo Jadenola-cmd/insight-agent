@@ -60,6 +60,7 @@ def apply_ops(tree: list[dict], ops: list[dict]) -> list[dict]:
             node.setdefault("status", "pending")
             node.setdefault("verification_summary", None)
             node.setdefault("confidence_level", None)
+            node.setdefault("chart_spec", None)
             if node["id"] in by_id:
                 continue  # 防止LLM重复生成同id节点
             tree.append(node)
@@ -75,6 +76,8 @@ def apply_ops(tree: list[dict], ops: list[dict]) -> list[dict]:
                 node["verification_summary"] = op.get("summary")
                 if op.get("confidence_level") in ("高", "中", "低"):
                     node["confidence_level"] = op.get("confidence_level")
+                if op.get("chart_spec"):
+                    node["chart_spec"] = op.get("chart_spec")
         elif kind == "merge_node":
             merge_ids = set(op.get("merge_ids") or [])
             merged_node = op.get("merged_node")

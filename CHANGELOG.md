@@ -4,6 +4,30 @@
 
 ---
 
+## 2026-06-21（综合结论report.html嵌入图表 + 报告结构丰富化）
+
+解决STATUS.md待办#1：`node_verification`（`api/core/graph.py`）每次验证假设算出的
+`chart_spec`此前只写进临时态`state.last_verification`（供前端右侧面板单次展示），
+从未持久化到`hypothesis_tree`节点，`node_conclusion`汇总生成报告时图表已丢失。
+
+- `api/core/schema.py`：`HypothesisNode`新增`chart_spec`字段，`HypothesisTreeOp`
+  的`update_summary`分支新增可选`chart_spec`字段
+- `api/nodes/hypothesis_tree.py`：`apply_ops`的`add_node`/`update_summary`分支
+  读写`chart_spec`
+- `api/core/graph.py`：`node_verification`构造`update_summary`op时把
+  `VisualizationModule().transform(...)`算出的chart_spec一并写入（不重复计算，
+  复用`last_verification`同一个dict）；`node_conclusion`新增按`status`统计的
+  `status_counts`KPI数字 + 用`DEFAULT_COLORS`拼装的假设状态分布饼图option，
+  传入模板
+- `api/templates/minerva_conclusion.html.j2`重构：执行摘要前置（BA报告"先结论
+  后细节"惯例）、新增"验证总览"KPI卡片区+状态分布图、每条已验证假设下方嵌入对应
+  验证图表；图表渲染方式为前端ECharts JS（`<script>`内联option经`tojson`输出+
+  `echarts.init().setOption()`），不引入Playwright/pyecharts等服务端渲染依赖
+- vendor `node_modules/echarts/dist/echarts.min.js`（v5.6.0）到新建`api/static/`，
+  `api/main.py`新增`StaticFiles`挂载`/static`路径
+- 本地用venv跑通：FastAPI app正常加载（含static路由）、Jinja模板渲染含图表的
+  假设树数据无报错、`apply_ops`确认`chart_spec`随`update_summary`正确持久化
+
 ## 2026-06-20续（修复场景5/7发现的2个真实bug + STATUS.md/DEBT.md精简）
 
 修复场景7发现的`AttributionModule`500崩溃：`api/modules/attribution.py`的`run()`

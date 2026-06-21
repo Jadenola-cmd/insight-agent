@@ -10,7 +10,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from api.core.paths import report_html_path
 from api.core.state import AnalysisState
 from api.modules.registry import default_registry
-from api.modules.visualization import VisualizationModule
+from api.modules.visualization import DEFAULT_COLORS, VisualizationModule
 from api.nodes.hypothesis_tree import (
     apply_ops,
     generate_chat_ops,
@@ -387,18 +387,19 @@ def node_verification(state: AnalysisState) -> dict:
         )
         verdict_status = {"support": "verified", "refute": "rejected", "inconclusive": "partial"}.get(narrative.get("verdict"))
         status = verdict_status or ("verified" if confidence["level"] != "低" else "partial")
+        chart_spec = VisualizationModule().transform(module.get_chart_spec(metrics))
         ops = [
             {"op": "update_status", "node_id": node_id, "status": status,
              "node": None, "summary": None, "merge_ids": None, "merged_node": None},
             {"op": "update_summary", "node_id": node_id, "summary": narrative.get("conclusion", ""),
-             "confidence_level": confidence["level"],
+             "confidence_level": confidence["level"], "chart_spec": chart_spec,
              "node": None, "status": None, "merge_ids": None, "merged_node": None},
         ]
         last_verification = {
             "node_id": node_id,
             "module": module.name,
             "category": module.category,
-            "chart": VisualizationModule().transform(module.get_chart_spec(metrics)),
+            "chart": chart_spec,
             "confidence": confidence,
             "narrative": narrative,
         }
@@ -441,12 +442,36 @@ def node_conclusion(state: AnalysisState) -> dict:
     for node in tree:
         groups.setdefault(node.get("group") or "未分组", []).append(node)
 
+    status_counts = {status: 0 for status in HYPOTHESIS_STATUS_LABELS}
+    for node in tree:
+        status = node.get("status")
+        if status in status_counts:
+            status_counts[status] += 1
+
+    status_chart = {
+        "color": DEFAULT_COLORS,
+        "tooltip": {"trigger": "item"},
+        "legend": {},
+        "series": [{
+            "name": "假设状态分布",
+            "type": "pie",
+            "radius": "65%",
+            "data": [
+                {"name": HYPOTHESIS_STATUS_LABELS[status], "value": count}
+                for status, count in status_counts.items() if count > 0
+            ],
+        }],
+    }
+
     template = _template_env.get_template("minerva_conclusion.html.j2")
     report_html = template.render(
         problem_card=problem_card,
         groups=groups,
         status_labels=HYPOTHESIS_STATUS_LABELS,
         conclusion=conclusion,
+        status_counts=status_counts,
+        total_hypotheses=len(tree),
+        status_chart=status_chart if len(tree) > 0 else None,
     )
 
     session_id = state.get("session_id")
